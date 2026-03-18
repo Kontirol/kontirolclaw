@@ -149,16 +149,70 @@ User Input → AI Model → Intent Recognition → Command Execution → Result 
 
 ## 🤝 Contributing | 贡献指南
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
+We warmly welcome contributions from developers worldwide! Whether you're a seasoned pro or just getting started, there's a place for you in KontirolClaw.
 
-欢迎贡献！请先阅读我们的 [贡献指南](CONTRIBUTING.md)。
+我们热忱欢迎全球开发者的参与！无论你是资深大佬还是初学者，KontirolClaw都有你的位置。
+
+### How to Contribute | 如何贡献
+
+| English | 中文 |
+|---------|------|
+| 1. **Fork** this repository | 1. **Fork** 本项目 |
+| 2. **Create** your feature branch: `git checkout -b feature/awesome-feature` | 2. **创建**功能分支：`git checkout -b feature/你的功能` |
+| 3. **Commit** your changes: `git commit -m 'Add some awesome feature'` | 3. **提交**修改：`git commit -m '添加很棒的功能'` |
+| 4. **Push** to the branch: `git push origin feature/awesome-feature` | 4. **推送**到分支：`git push origin feature/你的功能` |
+| 5. **Open** a Pull Request and wait for review 🎉 | 5. **打开** Pull Request 并等待审核 🎉 |
 
 ### Ways to Contribute | 贡献方式
 
-- 🐛 Report bugs | 报告bug
-- 💡 Submit feature requests | 提交功能建议
-- 📝 Improve documentation | 改进文档
-- 🔧 Submit pull requests | 提交拉取请求
+| English | 中文 | Priority |
+|--------|------|----------|
+| 🐛 Report bugs and issues | 报告bug和问题 | 🔴 High |
+| 💡 Suggest new features | 提出新功能建议 | 🟡 Medium |
+| 🧩 Develop new plugins/skills | 开发新插件/技能 | 🔴 High |
+| 📝 Improve documentation | 改进文档 | 🟡 Medium |
+| 🔧 Fix bugs and optimize code | 修复bug和优化代码 | 🔴 High |
+| 🧪 Add tests | 添加测试 | 🟡 Medium |
+| 🌐 Translate documentation | 翻译文档 | 🟢 Low |
+
+### What We Need Most | 我们最需要什么
+
+```
+🔥 Hot Issues:
+  - Better error handling and retry mechanisms
+  - Configuration file support (not just .env)
+  - Comprehensive test coverage
+  - More plugin examples (file operations, git, etc.)
+  - Windows/Mac/Linux cross-platform optimization
+  - AI model response streaming
+```
+
+```
+🔥 热门议题：
+  - 更好的错误处理和重试机制
+  - 配置文件支持（不仅仅是.env）
+  - 全面的测试覆盖
+  - 更多插件示例（文件操作、git等）
+  - Windows/Mac/Linux 跨平台优化
+  - AI模型响应流式输出
+```
+
+### Code Style | 代码风格
+
+- Use **TypeScript** for new code | 新代码请使用 **TypeScript**
+- Follow existing code patterns | 遵循现有代码风格
+- Add comments for complex logic | 复杂逻辑请添加注释
+- Run `npm run lint` before submitting | 提交前请运行 `npm run lint`
+
+### Discussion | 讨论交流
+
+- 💬 Open an Issue for bugs/features | 对于bug/功能请开Issue
+- 🐦 Follow us on X/Twitter | 在X/Twitter上关注我们
+- 📧 Contact: kontirolclaw@example.com | 邮箱联系：kontirolclaw@example.com
+
+**Every contribution matters! Thank you for making KontirolClaw better.**
+
+**每一次贡献都很重要！感谢你让KontirolClaw变得更好。**
 
 ---
 
