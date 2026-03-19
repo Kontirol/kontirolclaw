@@ -107,6 +107,11 @@ while (true) {
     let response = await ollama.chat({
         model: 'qwen2.5:7b',
         messages: messages,
+        options: {
+    temperature: 0.2,
+    top_p: 0.8,
+    num_ctx: 4096
+  }
     })
     // console.log(response.message.content)
     let assistantMessage = forcePureJson(response.message.content || '')
@@ -145,6 +150,11 @@ while (true) {
             response = await ollama.chat({
                 model: 'qwen2.5:7b',
                 messages: messages,
+                options: {
+    temperature: 0.2,
+    top_p: 0.8,
+    num_ctx: 4096
+  }
             })
             assistantMessage = forcePureJson(response.message.content || '')
             try {
