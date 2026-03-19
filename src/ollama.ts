@@ -49,27 +49,51 @@ const messages = [
     {
         role: "system", content: `You are a helpful ai agent. 你的名字是 KontirolClaw
         
-        You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
+        You can execute powershell / cmd commands and return results to users. a strict AI agent that ONLY outputs PURE JSON:
         【核心规则 1】
-必须使用命令行实现，绝对绝对不能让用户手动操作！
-绝对不能输出代码让用户复制！
-绝对不能说“你手动创建”！
-规则：
-- 不要加任何额外文字
-- 不要加注释
-- 不要包裹\`\`\`
+            必须使用命令行实现，绝对绝对不能让用户手动操作！
+            绝对不能输出代码让用户复制！
+            绝对不能说“你手动创建”！
+        规则：
+            - 要返回纯json
+            - 不要加任何额外文字
+            - 不要加注释
+            - 不要包裹\`\`\`
+
+        1.{"exec":"<bash command>"} - when you need execute a bash command and you can also call built-in skills
+        2.{"text":"<responsi>"} - when you want to return  normal text response
 
         Examples:
-        - command: dir d:
-        - text: Hello! How can I help you today?
-        - command: pwd
-        - text:the current directory is ...
-        返回command:  是 后面千万不要返回无关的解释，只返回命令，千万不要返回，请运行以下命令：，不要让用户执行命令，你返回command:
+        - {"exec":"dir d:"}
+        - {"text":"Hello! How can I help you today?"}
+        - {"exec":"pwd"}
+        - {"text”:"the current directory is ..."}
+        千万不要返回 \'\'\' bash.... , 要返回 {"exec":"<command>"},
         以下是你可以调用的所有技能说明（请严格按照说明调用）：
         ${ALL_SKILLS_DOCS}
         skills 脚本在 skills目录里对应的技能文件夹里面
+
+        规则：
+            - 要返回纯json
+            - 不要加任何额外文字
+            - 不要加注释
+            - 不要包裹\`\`\`
         `},
 ]
+
+// ====================== 终极清理函数（不管 AI 怎么乱输出都能修好）======================
+function forcePureJson(text:any) {
+    if (!text) return '{"text":""}';
+    text = text.replace(/```json|```/g, '').trim();
+    
+    // 🔥 修复：只取【第一个】{...}，忽略后面多余的
+    const matches = text.match(/\{[\s\S]*?\}/g);
+    if (matches && matches.length > 0) {
+        return matches[0].replace(/\n/g, ' ').trim();
+    }
+    
+    return `{"text":"${text.replace(/"/g, '\\"')}"}`;
+}
 
 while (true) {
     const userInput = await rl.question(yellow + '请输入您的问题(输入 "exit" 退出)：');
@@ -81,43 +105,63 @@ while (true) {
     messages.push({ role: 'user', content: userInput })
 
     let response = await ollama.chat({
-        model: 'qwen2.5-coder:7b',
+        model: 'qwen2.5:7b',
         messages: messages,
     })
     // console.log(response.message.content)
-    let assistantMessage = response.message.content || ''
+    let assistantMessage = forcePureJson(response.message.content || '')
 
+    let aiMessage
+    let keys
     // 内部循环
-    while (assistantMessage.startsWith('command:')) {
-        const command = assistantMessage.replace('command:', '').trim();
-        console.log(`${green}执行命令：${command}`);
-
+    while (true) {
         try {
-            const { stdout, stderr } = await execAsync(command);
-            const result = stdout || stderr
-            // console.log(result);
-
-            // 将命令和结果都添加到对话历史
-            messages.push({ role: 'assistant', content: assistantMessage })
-            messages.push({ role: 'user', content: `命令执行结果:\n${result}` })
-
-        } catch (error: any) {
-            const errorMsg = `命令执行错误: ${error.message}`;
-            // console.log(errorMsg);
-            messages.push({ role: 'assistant', content: assistantMessage })
-            messages.push({ role: 'user', content: errorMsg })
+            aiMessage = JSON.parse(assistantMessage.trim());
+            keys = Object.keys(aiMessage);
+        } catch (error) {
+            aiMessage = { text: assistantMessage };
+            keys = ['text'];
         }
+        if (keys[0] == "exec") {
+            const command = aiMessage.exec
+            console.log(`${green}执行命令：${command}`);
 
-        response = await ollama.chat({
-            model: 'qwen2.5:7b',
-            messages: messages,
-        })
-        assistantMessage = response.message.content || ''
+            try {
+                const { stdout, stderr } = await execAsync(command);
+                const result = stdout || stderr
+                // console.log(result);
+
+                // 将命令和结果都添加到对话历史
+                messages.push({ role: 'assistant', content: assistantMessage })
+                messages.push({ role: 'user', content: `命令执行结果:\n${result}` })
+
+            } catch (error: any) {
+                const errorMsg = `命令执行错误: ${error.message}`;
+                // console.log(errorMsg);
+                messages.push({ role: 'assistant', content: assistantMessage })
+                messages.push({ role: 'user', content: errorMsg })
+            }
+
+            response = await ollama.chat({
+                model: 'qwen2.5:7b',
+                messages: messages,
+            })
+            assistantMessage = forcePureJson(response.message.content || '')
+            try {
+                aiMessage = JSON.parse(assistantMessage.trim());
+                keys = Object.keys(aiMessage)
+            } catch (error) {
+                aiMessage = { text: assistantMessage };
+                keys = ['text'];
+            }
+        }else{
+            break
+        }
     }
 
     //  处理不同类型的返回
-    if (assistantMessage.startsWith('text:')) {
-        const text = assistantMessage.replace('text:', '').trim();
+    if (keys[0] === 'text') {
+        const text = aiMessage.text
         console.log(`${cyan}AI回复：${text}`);
         messages.push({ role: 'assistant', content: assistantMessage })
     } else {

@@ -57,15 +57,15 @@ const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {role: "system", content: `You are a helpful ai agent. your name is KontirolClaw
         
         You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
-
-        1.command: <bash command> - when you need execute a bash command and you can also call built-in skills
-        2.text: <response> - when you want to return  normal text response
+        不要包含 \'\'\'
+        1.{"exec":"<bash command>"} - when you need execute a bash command and you can also call built-in skills
+        2.{"text":"<responsi>"} - when you want to return  normal text response
 
         Examples:
-        - command: dir d:
-        - text: Hello! How can I help you today?
-        - command: pwd
-        - text:the current directory is ...
+        - {"exec","dir d:"}
+        - {"text":"Hello! How can I help you today?"}
+        - {"exec":"pwd"}
+        - {"text”:"the current directory is ..."}
 
         The following are the specifications for all the skills you can invoke (please follow them strictly).
         ${ALL_SKILLS_DOCS}
@@ -91,15 +91,25 @@ while (true) {
 
     let assistantMessage = completion.choices[0].message.content || '';
 
+    let aiMessage;
+    let keys;
+    try {
+        aiMessage = JSON.parse(assistantMessage.trim());
+        keys = Object.keys(aiMessage);
+    } catch (e) {
+        // 解析失败 → 当成纯文本处理
+        aiMessage = { text: assistantMessage };
+        keys = ['text'];
+    }
     // 内部循环
-    while(assistantMessage.startsWith('command:')){
-        const command  =assistantMessage.replace('command:','').trim();
+    while(keys[0] === 'exec'){
+        const command  = aiMessage.exec;
         console.log(`${green}执行命令：${command}`);
 
          try {
             const {stdout,stderr} = await execAsync(command);
             const  result  = stdout || stderr
-            // console.log(result);
+            console.log(result);
 
             // 将命令和结果都添加到对话历史
             messages.push({role:'assistant',content:assistantMessage})
@@ -118,13 +128,22 @@ while (true) {
             temperature: 0.6
         });
         assistantMessage = completion.choices[0].message.content || '';
+        try {
+            aiMessage = JSON.parse(assistantMessage.trim());
+            keys = Object.keys(aiMessage)
+        } catch (error) {
+            aiMessage = { text: assistantMessage };
+            keys = ['text'];
+        }
+        
+        console.log(assistantMessage);
     }
 
 
 
     //  处理不同类型的返回
-    if(assistantMessage.startsWith('text:')){
-        const text  =assistantMessage.replace('text:','').trim();
+    if(keys[0] === 'text'){
+        const text  = aiMessage.text;
         console.log(`${cyan}AI回复：${text}`);
         messages.push({role:'assistant',content:assistantMessage})
     }else{
