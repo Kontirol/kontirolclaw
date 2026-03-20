@@ -5,6 +5,7 @@ import { promisify } from "util";
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import * as file from './tools/file.ts'
 
 // 颜色常量
 const reset = "\x1b[0m";
@@ -55,7 +56,7 @@ const client = new OpenAI({
 // 上下文
 const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
-        role: "system", content: `You are a helpful ai agent. your name is KontirolClaw
+        role: "system", content: `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
         
         You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
         不要包含 \'\'\'
@@ -76,11 +77,30 @@ const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         你：{"exec":"ipconfig"}
         用户：ipconfig 的执行结果
         你看着这些内容，判断是否完成了，是的话就才返回text
+
+        你可以调用以下文件操作工具，直接用函数名调用：
+
+文件操作工具：
+1. readFile("路径")      - 读取文件
+2. createFile("路径")    - 创建空文件
+3. editFile("路径","内容") - 写入/修改文件
+4. deleteFile("路径")    - 删除文件
+5. readDir("目录")       - 查看文件夹
+如果用户让你写代码，你就不要用 \n \ 这种转义字符
+
+调用示例：
+{"exec":"readFile(\"test.txt\")"}
+{"exec":"createFile(\"notes.md\")"}
+{"exec":"editFile(\"notes.md\",\"# 我是内容\")"}
+{"exec":"deleteFile(\"notes.md\")"}
+{"exec":"readDir(\"./\")"}
         
 
+        用户让你用skills 或者 skill 你再调用，不然你就用自己的工具，千万不要调用skill.
         The following are the specifications for all the skills you can invoke (please follow them strictly).
         ${ALL_SKILLS_DOCS}
-        The skills script is located in the current "skill" folder. There might be some Python files or other code files there. Just follow the instructions in the documentation to run that script.
+        The skills script is located in the current "skill" folder.
+        如果skills 文件夹里有脚本，比如 python ts js ， 你可以按照它的文档直接运行它，不用自己写代码执行。不要执行 python -c ""
         `},
 ]
 //json解析
@@ -114,17 +134,17 @@ while (true) {
     messages.push({ role: 'user', content: userInput })
 
     let completion = await client.chat.completions.create({
-        model: "deepseek-chat",
+        model: process.env['MODEL']!,
         messages: messages,
         temperature: 0.6
     });
 
-    let assistantMessage = forcePureJson(completion.choices[0].message.content || '');
+    let assistantMessage = completion.choices[0].message.content || '';
     
     let aiMessage;
     let keys;
     try {
-        aiMessage = JSON.parse(assistantMessage.trim());
+        aiMessage = JSON.parse(forcePureJson(assistantMessage.trim()));
         keys = Object.keys(aiMessage);
     } catch (e) {
         // 解析失败 → 当成纯文本处理
@@ -137,8 +157,9 @@ while (true) {
         console.log(`${green}执行命令：${command}`);
 
         try {
-            const { stdout, stderr } = await execAsync(command);
-            const result = stdout || stderr
+            // const { stdout, stderr } = await execAsync(command);
+            const result = await executeToolCommand(command);
+            // const result = stdout || stderr
             console.log(result);
 
             // 将命令和结果都添加到对话历史
@@ -153,13 +174,13 @@ while (true) {
         }
 
         completion = await client.chat.completions.create({
-            model: "deepseek-chat",
+            model: process.env['MODEL']!,
             messages: messages,
             temperature: 0.6
         });
         assistantMessage = completion.choices[0].message.content || '';
         try {
-            aiMessage = JSON.parse(assistantMessage.trim());
+            aiMessage = JSON.parse(forcePureJson(assistantMessage.trim()));
             keys = Object.keys(aiMessage)
         } catch (error) {
             aiMessage = { text: assistantMessage };
@@ -184,3 +205,81 @@ while (true) {
     console.log('---');
 }
 rl.close();
+
+
+
+
+
+
+
+
+
+// 执行文件工具函数
+async function executeToolCommand(command: string) {
+  try {
+    // 解码 AI 转义的代码：把 \n 变成换行，\" 变成 "
+    function decodeAICode(content: string): string {
+      if (!content) return "";
+      return content
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "")
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\\\/g, "\\");
+    }
+
+    // ------------------------------
+    // readFile
+    // ------------------------------
+    if (command.startsWith("readFile(")) {
+      const filePath = command.match(/readFile\("(.*?)"\)/)?.[1] || "";
+      return await file.readFile(filePath);
+    }
+
+    // ------------------------------
+    // createFile
+    // ------------------------------
+    if (command.startsWith("createFile(")) {
+      const filePath = command.match(/createFile\("(.*?)"\)/)?.[1] || "";
+      return await file.createFile(filePath);
+    }
+
+    // ------------------------------
+    // editFile —— 修复在这里！！！
+    // ------------------------------
+    if (command.startsWith("editFile(")) {
+      // 正确正则：捕获整个内容，不会断！
+      const match = command.match(/editFile\("(.*?)",\s*"([\s\S]*)"\)$/);
+      const filePath = match?.[1] || "";
+      const content = match?.[2] || "";
+
+      const realContent = decodeAICode(content);
+      return await file.editFile(filePath, realContent);
+    }
+
+    // ------------------------------
+    // deleteFile
+    // ------------------------------
+    if (command.startsWith("deleteFile(")) {
+      const filePath = command.match(/deleteFile\("(.*?)"\)/)?.[1] || "";
+      return await file.deleteFile(filePath);
+    }
+
+    // ------------------------------
+    // readDir
+    // ------------------------------
+    if (command.startsWith("readDir(")) {
+      const dirPath = command.match(/readDir\("(.*?)"\)/)?.[1] || "./";
+      return await file.readDir(dirPath);
+    }
+
+    // ------------------------------
+    // 系统命令
+    // ------------------------------
+    const { stdout, stderr } = await execAsync(command);
+    return stdout || stderr;
+
+  } catch (err: any) {
+    return "执行失败：" + err.message;
+  }
+}
