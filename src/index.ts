@@ -4,8 +4,11 @@ import { exec } from 'child_process'
 import { promisify } from "util";
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import * as file from './tools/file.ts'
+import * as todo from './tools/todo.ts'
+import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive.ts'
 
 // 颜色常量
 const reset = "\x1b[0m";
@@ -86,14 +89,43 @@ const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
 3. editFile("路径","内容") - 写入/修改文件
 4. deleteFile("路径")    - 删除文件
 5. readDir("目录")       - 查看文件夹
+
+Todo任务管理工具（用于跟踪你的任务进度）：
+1. createTodoList(任务数组) - 创建/更新整个todo列表，参数是JSON数组，每个任务包含：id(必填), content(必填), status(pending/in_progress/completed), priority(high/medium/low)
+2. updateTodoStatus("任务ID", "新状态") - 更新单个任务状态
+3. getTodos() - 获取当前todo列表，显示所有任务和进度
+4. addTodo("任务内容", "优先级") - 添加单个任务
+5. deleteTodo("任务ID") - 删除任务
+
+当用户给你复杂任务时，你应该先创建todo列表来跟踪进度，然后逐步执行，每完成一步就更新任务状态。
+
 如果用户让你写代码，你就不要用 \n \ 这种转义字符
 
 调用示例：
+文件操作：
 {"exec":"readFile(\"test.txt\")"}
 {"exec":"createFile(\"notes.md\")"}
 {"exec":"editFile(\"notes.md\",\"# 我是内容\")"}
 {"exec":"deleteFile(\"notes.md\")"}
 {"exec":"readDir(\"./\")"}
+
+Todo操作：
+{"exec":"createTodoList([{\"id\":\"1\",\"content\":\"查看目录\",\"status\":\"pending\",\"priority\":\"high\"},{\"id\":\"2\",\"content\":\"创建文件\",\"status\":\"pending\",\"priority\":\"medium\"}])"}
+{"exec":"updateTodoStatus(\"1\",\"in_progress\")"}
+{"exec":"getTodos()"}
+{"exec":"addTodo(\"新任务\",\"high\")"}
+{"exec":"deleteTodo(\"1\")"}
+
+重要提示 - 交互式命令处理：
+当执行需要用户输入的命令时（如 npm create、git commit 无 -m 等），系统会自动检测并使用PTY模式执行。
+如果命令需要用户交互，系统会提示用户在终端中继续操作。
+常见的交互式命令包括：npm create、npm init、git commit（无-m）、ssh连接等。
+建议：对于创建项目等命令，尽量使用非交互式参数，如 npm create vue@latest my-app -- --default
+
+重要提示 - 长期运行进程处理：
+当执行开发服务器等长期运行的命令时（如 npm run dev、npm start、vite 等），系统会自动在后台启动进程。
+进程启动后会显示初始输出和进程ID（PID），你可以继续执行其他命令。
+如需停止后台进程，请使用任务管理器或运行: taskkill /PID <PID> /F (Windows) 或 kill <PID> (Linux/Mac)。
         
 
         用户让你用skills 或者 skill 你再调用，不然你就用自己的工具，千万不要调用skill.
@@ -275,9 +307,128 @@ async function executeToolCommand(command: string) {
       return await file.readDir(dirPath);
     }
 
+    // ==============================
+    // Todo 工具
+    // ==============================
+    
+    // ------------------------------
+    // createTodoList
+    // ------------------------------
+    if (command.startsWith("createTodoList(")) {
+      const match = command.match(/createTodoList\(([\s\S]*)\)$/);
+      const todosJson = match?.[1] || "[]";
+      return await todo.createTodoList(todosJson);
+    }
+
+    // ------------------------------
+    // updateTodoStatus
+    // ------------------------------
+    if (command.startsWith("updateTodoStatus(")) {
+      const match = command.match(/updateTodoStatus\("(.*?)",\s*"(.*?)"\)/);
+      const id = match?.[1] || "";
+      const status = match?.[2] || "pending";
+      return await todo.updateTodoStatus(id, status as any);
+    }
+
+    // ------------------------------
+    // getTodos
+    // ------------------------------
+    if (command.startsWith("getTodos()")) {
+      return await todo.getTodos();
+    }
+
+    // ------------------------------
+    // addTodo
+    // ------------------------------
+    if (command.startsWith("addTodo(")) {
+      const match = command.match(/addTodo\("(.*?)"(?:,\s*"(.*?)")?\)/);
+      const content = match?.[1] || "";
+      const priority = match?.[2] || "medium";
+      return await todo.addTodo(content, priority as any);
+    }
+
+    // ------------------------------
+    // deleteTodo
+    // ------------------------------
+    if (command.startsWith("deleteTodo(")) {
+      const match = command.match(/deleteTodo\("(.*?)"\)/);
+      const id = match?.[1] || "";
+      return await todo.deleteTodo(id);
+    }
+
     // ------------------------------
     // 系统命令
     // ------------------------------
+    // 检测是否为长期运行进程
+    if (isLongRunningCommand(command)) {
+      console.log(`${yellow}⚠️  检测到长期运行进程（如开发服务器），正在后台启动...${reset}`);
+      
+      try {
+        // 使用 spawn 在后台启动进程
+        const { spawn } = await import('child_process');
+        
+        // 根据平台选择 shell
+        const shell = os.platform() === 'win32' 
+          ? (process.env.ComSpec || 'cmd.exe')
+          : 'bash';
+        const shellArgs = os.platform() === 'win32' ? ['/c'] : ['-c'];
+        
+        const child = spawn(shell, [...shellArgs, command], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
+        
+        let output = '';
+        let outputTimeout: NodeJS.Timeout;
+        
+        // 收集初始输出（最多3秒）
+        const collectOutput = (data: Buffer) => {
+          output += data.toString();
+          clearTimeout(outputTimeout);
+          outputTimeout = setTimeout(() => {
+            // 3秒后没有新输出，返回结果
+            child.stdout?.removeAllListeners();
+            child.stderr?.removeAllListeners();
+          }, 3000);
+        };
+        
+        child.stdout?.on('data', collectOutput);
+        child.stderr?.on('data', collectOutput);
+        
+        // 等待初始输出
+        await new Promise(resolve => setTimeout(resolve, 3500));
+        
+        // 分离进程，让它在后台运行
+        child.unref();
+        
+        return `✅ 进程已在后台启动 (PID: ${child.pid})\n\n初始输出：\n${output}\n\n💡 提示：\n- 进程正在后台运行\n- 你可以继续执行其他命令\n- 如需停止进程，请使用任务管理器或运行: taskkill /PID ${child.pid} /F (Windows) 或 kill ${child.pid} (Linux/Mac)`;
+      } catch (err: any) {
+        return `❌ 启动后台进程失败: ${err.message}`;
+      }
+    }
+    
+    // 检测是否为交互式命令
+    if (isInteractiveCommand(command)) {
+      console.log(`${yellow}⚠️  检测到交互式命令，正在使用PTY模式执行...${reset}`);
+      
+      try {
+        const result = await execInteractive(command, {
+          timeout: 60000, // 交互式命令给予更长的超时时间
+          showOutput: true,
+        });
+        
+        if (result.needsInput) {
+          // 需要用户输入，返回提示信息
+          return `${yellow}⚠️  命令需要用户输入，请在终端中继续操作。${reset}\n\n当前输出：\n${result.output}`;
+        }
+        
+        return result.output;
+      } catch (err: any) {
+        return `❌ 交互式命令执行失败: ${err.message}`;
+      }
+    }
+    
+    // 普通命令使用exec执行（传递工作目录）
     const { stdout, stderr } = await execAsync(command);
     return stdout || stderr;
 
