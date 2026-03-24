@@ -211,7 +211,7 @@ while (true) {
             temperature: 0.6
         });
         assistantMessage = completion.choices[0].message.content || '';
-        console.log(assistantMessage);
+        // console.log(assistantMessage);
         
         try {
             aiMessage = JSON.parse(forcePureJson(assistantMessage.trim()));
