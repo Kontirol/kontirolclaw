@@ -1,0 +1,20 @@
+[
+  {
+    "id": "1",
+    "content": "打开浏览器搜索黄金价格",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "2",
+    "content": "等待页面加载",
+    "status": "completed",
+    "priority": "medium"
+  },
+  {
+    "id": "3",
+    "content": "截图保存",
+    "status": "completed",
+    "priority": "high"
+  }
+]
