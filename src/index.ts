@@ -9,6 +9,13 @@ import { fileURLToPath } from 'url';
 import * as file from './tools/file.ts'
 import * as todo from './tools/todo.ts'
 import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive.ts'
+import { SessionManager } from './session/session-manager.ts';
+
+// 内联SessionMessage类型
+interface SessionMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 // 颜色常量
 const reset = "\x1b[0m";
@@ -16,6 +23,7 @@ const green = "\x1b[32m";   // 命令
 const cyan = "\x1b[36m";    // AI 回复
 const yellow = "\x1b[33m";  // 提示
 const gray = "\x1b[90m";    // 分割线
+const red = "\x1b[31m";    // 错误
 
 // 修复：ESM 中手动获取 __dirname（必须加）
 const __filename = fileURLToPath(import.meta.url);
@@ -28,7 +36,7 @@ function loadAllSkills() {
         return fs.statSync(path.join(skillRoot, dir)).isDirectory();
     });
 
-    const docs = [];
+    const docs: string[] = [];
     for (const dir of skillDirs) {
         const docPath = path.join(skillRoot, dir, 'SKILL.md');
         if (fs.existsSync(docPath)) {
@@ -56,11 +64,9 @@ const client = new OpenAI({
     baseURL: process.env['OPENAI_BASE_URL'],
 });
 
-// 上下文
-const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    {
-        role: "system", content: `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
-        
+// 系统消息
+const systemMessageContent = `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
+         
         You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
         不要包含 \'\'\'
         1.{"exec":"<bash command>"} - when you need execute a bash command and you can also call built-in skills
@@ -70,9 +76,9 @@ const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         - {"exec":"dir d:"}
         - {"text":"Hello! How can I help you today?"}
         - {"exec":"pwd"}
-        - {"text”:"the current directory is ..."}
+        - {"text":"the current directory is ..."}
 
-        当用户下发某个任务时，如果任务还没完成，千万不能返回 text，必须要返回 exec,你返回exec以后，用户会把执行结果给你返回，你看着结果判断，如果完成了你才发text，不然一直返回exec,
+        当用户下发某个任务时，如果任务还没完成，千百万不能返回 text，必须要返回 exec,你返回exec以后，用户会把执行结果给你返回，你看着结果判断，如果完成了你才发text,不然一直返回exec,
         比如
         用户：查看当前目录,并查看IP;
         你:{"exec":"dir"}
@@ -125,7 +131,7 @@ Todo操作：
 重要提示 - 长期运行进程处理：
 当执行开发服务器等长期运行的命令时（如 npm run dev、npm start、vite 等），系统会自动在后台启动进程。
 进程启动后会显示初始输出和进程ID（PID），你可以继续执行其他命令。
-如需停止后台进程，请使用任务管理器或运行: taskkill /PID <PID> /F (Windows) 或 kill <PID> (Linux/Mac)。
+如需停止后台进程，请使用任务管理器或运行: taskkill /PID <PID> /F (Windows) 或 kill <PID> (Linux/Mac)
         
 
         用户让你用skills 或者 skill 你再调用，不然你就用自己的工具，千万不要调用skill.
@@ -133,8 +139,107 @@ Todo操作：
         ${ALL_SKILLS_DOCS}
         The skills script is located in the current "skill" folder.
         如果skills 文件夹里有脚本，比如 python ts js ， 你可以按照它的文档直接运行它，不用自己写代码执行。不要执行 python -c ""
-        `},
-]
+        `;
+
+// 初始化会话管理器
+const sessionManager = new SessionManager();
+
+// 检查命令行参数
+const shouldCreateNewSession = process.argv.includes('--new-session');
+const listSessions = process.argv.includes('--list');
+
+// 会话管理命令处理
+if (listSessions) {
+    console.log('\n' + cyan + '=== 会话列表 ===' + reset + '\n');
+    const sessions = sessionManager.getAllSessions();
+    if (sessions.length === 0) {
+        console.log('暂无会话');
+    } else {
+        sessions.forEach((s, i) => {
+            const date = new Date(s.updatedAt).toLocaleString('zh-CN');
+            console.log(`${i + 1}. ${s.title}`);
+            console.log(`   ID: ${s.id}`);
+            console.log(`   消息: ${s.messageCount}条 | 更新: ${date}`);
+            console.log('');
+        });
+    }
+    process.exit(0);
+}
+
+// 检查是否要切换会话
+const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
+let targetSessionId: string | null = null;
+if (sessionArg) {
+    targetSessionId = sessionArg.replace('--session=', '');
+}
+
+// 转换消息格式：OpenAI格式 -> SessionMessage
+function openaiToSessionMessage(msg: any): SessionMessage {
+    return {
+        role: msg.role,
+        content: msg.content
+    };
+}
+
+// 转换消息格式：SessionMessage -> OpenAI格式
+function sessionMessageToOpenai(msg: SessionMessage): any {
+    return {
+        role: msg.role,
+        content: msg.content
+    };
+}
+
+// 初始化消息数组
+let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+
+// 尝试恢复会话或创建新会话
+if (shouldCreateNewSession) {
+    // 创建新会话，包含系统消息
+    const initialMessages: SessionMessage[] = [
+        { role: 'system', content: systemMessageContent }
+    ];
+    sessionManager.createSession(initialMessages);
+    messages = [{ role: 'system', content: systemMessageContent }];
+    console.log(yellow + '创建了新会话' + reset);
+} else if (targetSessionId) {
+    // 切换到指定会话
+    const session = sessionManager.loadSession(targetSessionId);
+    if (session && session.messages.length > 0) {
+        messages = session.messages.map(sessionMessageToOpenai);
+        console.log(yellow + `切换到会话: "${session.title}" (${session.messages.length} 条消息)` + reset);
+    } else {
+        console.log(red + `未找到会话: ${targetSessionId}` + reset);
+        process.exit(1);
+    }
+} else {
+    // 尝试恢复上次会话
+    const lastSession = sessionManager.getLastActiveSession();
+    if (lastSession && lastSession.messages.length > 0) {
+        // 恢复消息
+        messages = lastSession.messages.map(sessionMessageToOpenai);
+        console.log(yellow + `恢复了会话: "${lastSession.title}" (${lastSession.messages.length} 条消息)` + reset);
+    } else {
+        // 没有找到会话，创建新会话
+        const initialMessages: SessionMessage[] = [
+            { role: 'system', content: systemMessageContent }
+        ];
+        sessionManager.createSession(initialMessages);
+        messages = [{ role: 'system', content: systemMessageContent }];
+        console.log(yellow + '创建了新会话' + reset);
+    }
+}
+
+// 保存会话的函数（每隔5条消息保存一次，避免频繁IO）
+let saveCounter = 0;
+function autoSaveSession(currentMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]) {
+    // 将当前消息转换为SessionMessage格式
+    const sessionMessages: SessionMessage[] = currentMessages.map(openaiToSessionMessage);
+    // 每5次交互保存一次
+    if (saveCounter % 5 === 0) {
+        sessionManager.updateCurrentSession(sessionMessages);
+    }
+    saveCounter++;
+}
 //json解析
 function forcePureJson(text: string): string {
     if (!text) return '{"text":""}';
@@ -159,6 +264,9 @@ while (true) {
     const userInput = await rl.question(yellow + '请输入您的问题(输入 "exit" 退出)：');
 
     if (userInput.toLowerCase() === 'exit') {
+        // 退出前保存会话
+        const sessionMessages: SessionMessage[] = messages.map(openaiToSessionMessage);
+        sessionManager.updateCurrentSession(sessionMessages);
         console.log('再见');
         break;
     }
@@ -236,7 +344,9 @@ while (true) {
         console.log(`${cyan}AI回复：${text}`);
         messages.push({ role: 'assistant', content: assistantMessage })
     }
-    console.log('---');
+    // 自动保存会话
+    autoSaveSession(messages);
+    console.log(gray + '---' + reset);
 }
 rl.close();
 

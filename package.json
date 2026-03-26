@@ -8,7 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node --env-file=.env src/index.ts",
+    "start:new": "node --env-file=.env src/index.ts --new-session",
+    "start:list": "node --env-file=.env src/index.ts --list",
+    "start:session": "node --env-file=.env src/index.ts --session",
     "ollama": "node --env-file=.env src/ollama.ts",
+    "ollama:new": "node --env-file=.env src/ollama.ts --new-session",
+    "ollama:list": "node --env-file=.env src/ollama.ts --list",
+    "ollama:session": "node --env-file=.env src/ollama.ts --session",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

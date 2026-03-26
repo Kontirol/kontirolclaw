@@ -9,6 +9,13 @@ import { fileURLToPath } from 'url';
 import * as file from './tools/file.ts'
 import * as todo from './tools/todo.ts'
 import { isInteractiveCommand, execInteractive, isLongRunningCommand } from './tools/interactive.ts'
+import { SessionManager } from './session/session-manager.ts';
+
+// 内联SessionMessage类型
+interface SessionMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 // 颜色常量
 const reset = "\x1b[0m";
@@ -16,6 +23,7 @@ const green = "\x1b[32m";   // 命令
 const cyan = "\x1b[36m";    // AI 回复
 const yellow = "\x1b[33m";  // 提示
 const gray = "\x1b[90m";    // 分割线
+const red = "\x1b[31m";    // 错误
 
 // 修复：ESM 中手动获取 __dirname（必须加）
 const __filename = fileURLToPath(import.meta.url);
@@ -27,7 +35,7 @@ function loadAllSkills() {
         return fs.statSync(path.join(skillRoot, dir)).isDirectory();
     });
 
-    const docs = [];
+    const docs: string[] = [];
     for (const dir of skillDirs) {
         const docPath = path.join(skillRoot, dir, 'SKILL.md');
         if (fs.existsSync(docPath)) {
@@ -48,65 +56,64 @@ const rl = readline.createInterface({
     output: process.stdout,
 })
 
-// 上下文
-const messages: any[] = [
-    {
-        role: "system", content: `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
+// 系统消息
+const systemMessageContent = `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
         
         You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
         不要包含 \'\'\'
-        1.{"exec":"<bash command>"} - when you need execute a bash command and you can also call built-in skills
-        2.{"text":"<responsi>"} - when you want to return  normal text response
+        1.{\"exec\":\"<bash command>\"} - when you need execute a bash command and you can also call built-in skills
+        2.{\"text\":\"<responsi>\"} - when you want to return  normal text response
 
         Examples:
-        - {"exec":"dir d:"}
-        - {"text":"Hello! How can I help you today?"}
-        - {"exec":"pwd"}
-        - {"text”:"the current directory is ..."}
+        - {\"exec\":\"dir d:\"}
+        - {\"text\":\"Hello! How can I help you today?\"}
+        - {\"exec\":\"pwd\"}
+        - {\"text\":\"the current directory is ...\"}
 
         当用户下发某个任务时，如果任务还没完成，千万不能返回 text，必须要返回 exec,你返回exec以后，用户会把执行结果给你返回，你看着结果判断，如果完成了你才发text,不然一直返回exec,
         比如
         用户：查看当前目录,并查看IP;
-        你:{"exec":"dir"}
+        你:{\"exec\":\"dir\"}
         用户：dir 的执行结果
-        你：{"exec":"ipconfig"}
+        你：{\"exec\":\"ipconfig\"}
         用户：ipconfig 的执行结果
         你看着这些内容，判断是否完成了，是的话就才返回text
 
         你可以调用以下文件操作工具，直接用函数名调用：
 
 文件操作工具：
-1. readFile("路径")      - 读取文件
-2. createFile("路径")    - 创建空文件
-3. editFile("路径","内容") - 写入/修改文件
-4. deleteFile("路径")    - 删除文件
-5. readDir("目录")       - 查看文件夹
+1. readFile(\"路径\")      - 读取文件
+2. createFile(\"路径\")    - 创建空文件
+3. editFile(\"路径\",\"内容\") - 写入/修改文件
+4. deleteFile(\"路径\")    - 删除文件
+5. readDir(\"目录\")       - 查看文件夹
 
 Todo任务管理工具（用于跟踪你的任务进度）：
 1. createTodoList(任务数组) - 创建/更新整个todo列表，参数是JSON数组，每个任务包含：id(必填), content(必填), status(pending/in_progress/completed), priority(high/medium/low)
-2. updateTodoStatus("任务ID", "新状态") - 更新单个任务状态
+2. updateTodoStatus(\"任务ID\", \"新状态\") - 更新单个任务状态
 3. getTodos() - 获取当前todo列表，显示所有任务和进度
-4. addTodo("任务内容", "优先级") - 添加单个任务
-5. deleteTodo("任务ID") - 删除任务
+4. addTodo(\"任务内容\", \"优先级\") - 添加单个任务
+5. deleteTodo(\"任务ID\") - 删除任务
 
 当用户给你复杂任务时，你应该先创建todo列表来跟踪进度，然后逐步执行，每完成一步就更新任务状态。
 
-如果用户让你写代码，你就不要用 \n \ 这种转义字符
+如果用户让你写代码，你就不要用 \\\
+ \\ 这种转义字符
 
 调用示例：
 文件操作：
-{"exec":"readFile(\"test.txt\")"}
-{"exec":"createFile(\"notes.md\")"}
-{"exec":"editFile(\"notes.md\",\"# 我是内容\")"}
-{"exec":"deleteFile(\"notes.md\")"}
-{"exec":"readDir(\"./\")"}
+{\"exec\":\"readFile(\\\"test.txt\\\")\"}
+{\"exec\":\"createFile(\\\"notes.md\\\")\"}
+{\"exec\":\"editFile(\\\"notes.md\\\",\\\"# 我是内容\\\")\"}
+{\"exec\":\"deleteFile(\\\"notes.md\\\")\"}
+{\"exec\":\"readDir(\\\"./\\\")\"}
 
 Todo操作：
-{"exec":"createTodoList([{\"id\":\"1\",\"content\":\"查看目录\",\"status\":\"pending\",\"priority\":\"high\"},{\"id\":\"2\",\"content\":\"创建文件\",\"status\":\"pending\",\"priority\":\"medium\"}])"}
-{"exec":"updateTodoStatus(\"1\",\"in_progress\")"}
-{"exec":"getTodos()"}
-{"exec":"addTodo(\"新任务\",\"high\")"}
-{"exec":"deleteTodo(\"1\")"}
+{\"exec\":\"createTodoList([{\\\"id\\\":\\\"1\\\",\\\"content\\\":\\\"查看目录\\\",\\\"status\\\":\\\"pending\\\",\\\"priority\\\":\\\"high\\\"},{\\\"id\\\":\\\"2\\\",\\\"content\\\":\\\"创建文件\\\",\\\"status\\\":\\\"pending\\\",\\\"priority\\\":\\\"medium\\\"}])\"}
+{\"exec\":\"updateTodoStatus(\\\"1\\\",\\\"in_progress\\\")\"}
+{\"exec\":\"getTodos()\"}
+{\"exec\":\"addTodo(\\\"新任务\\\",\\\"high\\\")\"}
+{\"exec\":\"deleteTodo(\\\"1\\\")\"}
 
 重要提示 - 交互式命令处理：
 当执行需要用户输入的命令时（如 npm create、git commit 无 -m 等），系统会自动检测并使用PTY模式执行。
@@ -123,21 +130,120 @@ Todo操作：
         用户让你用skills 或者 skill 你再调用，不然你就用自己的工具，千万不要调用skill.
         The following are the specifications for all the skills you can invoke (please follow them strictly).
         ${ALL_SKILLS_DOCS}
-        The skills script is located in the current "skill" folder.
-        如果skills 文件夹里有脚本，比如 python ts js ， 你可以按照它的文档直接运行它，不用自己写代码执行。不要执行 python -c ""
-        `},
-];
+        The skills script is located in the current \"skill\" folder.
+        如果skills 文件夹里有脚本，比如 python ts js ， 你可以按照它的文档直接运行它，不用自己写代码执行。不要执行 python -c \"\"
+        `;
+
+// 初始化会话管理器
+const sessionManager = new SessionManager();
+
+// 检查命令行参数
+const shouldCreateNewSession = process.argv.includes('--new-session');
+const listSessions = process.argv.includes('--list');
+
+// 会话管理命令处理
+if (listSessions) {
+    console.log('\n' + cyan + '=== 会话列表 ===' + reset + '\n');
+    const sessions = sessionManager.getAllSessions();
+    if (sessions.length === 0) {
+        console.log('暂无会话');
+    } else {
+        sessions.forEach((s, i) => {
+            const date = new Date(s.updatedAt).toLocaleString('zh-CN');
+            console.log(`${i + 1}. ${s.title}`);
+            console.log(`   ID: ${s.id}`);
+            console.log(`   消息: ${s.messageCount}条 | 更新: ${date}`);
+            console.log('');
+        });
+    }
+    process.exit(0);
+}
+
+// 检查是否要切换会话
+const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
+let targetSessionId: string | null = null;
+if (sessionArg) {
+    targetSessionId = sessionArg.replace('--session=', '');
+}
+
+// 转换消息格式：Ollama格式（与OpenAI格式相同） -> SessionMessage
+function ollamaToSessionMessage(msg: any): SessionMessage {
+    return {
+        role: msg.role,
+        content: msg.content
+    };
+}
+
+// 转换消息格式：SessionMessage -> Ollama格式
+function sessionMessageToOllama(msg: SessionMessage): any {
+    return {
+        role: msg.role,
+        content: msg.content
+    };
+}
+
+// 初始化消息数组
+let messages: any[] = [];
+
+// 尝试恢复会话或创建新会话
+if (shouldCreateNewSession) {
+    // 创建新会话，包含系统消息
+    const initialMessages: SessionMessage[] = [
+        { role: 'system', content: systemMessageContent }
+    ];
+    sessionManager.createSession(initialMessages);
+    messages = [systemMessageContent];
+    console.log(yellow + '创建了新会话' + reset);
+} else if (targetSessionId) {
+    // 切换到指定会话
+    const session = sessionManager.loadSession(targetSessionId);
+    if (session && session.messages.length > 0) {
+        messages = session.messages.map(sessionMessageToOllama);
+        console.log(yellow + `切换到会话: "${session.title}" (${session.messages.length} 条消息)` + reset);
+    } else {
+        console.log(red + `未找到会话: ${targetSessionId}` + reset);
+        process.exit(1);
+    }
+} else {
+    // 尝试恢复上次会话
+    const lastSession = sessionManager.getLastActiveSession();
+    if (lastSession && lastSession.messages.length > 0) {
+        // 恢复消息，注意：系统消息已经包含在会话中，所以我们直接使用会话中的消息
+        messages = lastSession.messages.map(sessionMessageToOllama);
+        console.log(yellow + `恢复了会话: "${lastSession.title}" (${lastSession.messages.length} 条消息)` + reset);
+    } else {
+        // 没有找到会话，创建新会话
+        const initialMessages: SessionMessage[] = [
+            { role: 'system', content: systemMessageContent }
+        ];
+        sessionManager.createSession(initialMessages);
+        messages = [systemMessageContent];
+        console.log(yellow + '创建了新会话' + reset);
+    }
+}
+
+// 保存会话的函数（每隔5条消息保存一次，避免频繁IO）
+let saveCounter = 0;
+function autoSaveSession(currentMessages: any[]) {
+    // 将当前消息转换为SessionMessage格式
+    const sessionMessages: SessionMessage[] = currentMessages.map(ollamaToSessionMessage);
+    // 每5次交互保存一次
+    if (saveCounter % 5 === 0) {
+        sessionManager.updateCurrentSession(sessionMessages);
+    }
+    saveCounter++;
+}
 
 // json解析
 function forcePureJson(text: string): string {
-    if (!text) return '{"text":""}';
+    if (!text) return '{\"text\":\"\"}';
     text = text.replace(/```json|```/g, '').trim();
     
     const trimmed = text.trim();
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
         try {
             JSON.parse(trimmed);
-            return trimmed;
+            return trimmed; // 合法JSON，直接返回
         } catch {}
     }
 
@@ -148,9 +254,12 @@ function forcePureJson(text: string): string {
 
 // 主循环
 while (true) {
-    const userInput = await rl.question(yellow + '请输入您的问题(输入 "exit" 退出)：' + reset);
+    const userInput = await rl.question(yellow + '请输入您的问题(输入 \"exit\" 退出)：' + reset);
 
     if (userInput.toLowerCase() === 'exit') {
+        // 退出前保存会话
+        const sessionMessages: SessionMessage[] = messages.map(ollamaToSessionMessage);
+        sessionManager.updateCurrentSession(sessionMessages);
         console.log('再见');
         break;
     }
@@ -185,7 +294,8 @@ while (true) {
             console.log(result);
 
             messages.push({ role: 'assistant', content: assistantMessage });
-            messages.push({ role: 'user', content: `命令执行结果:\n${result}` });
+            messages.push({ role: 'user', content: `命令执行结果:\
+${result}` });
 
         } catch (error: any) {
             const errorMsg = `命令执行错误: ${error.message}`;
@@ -219,7 +329,8 @@ while (true) {
         console.log(`${cyan}AI回复：${text}${reset}`);
         messages.push({ role: 'assistant', content: assistantMessage });
     }
-
+    // 自动保存会话
+    autoSaveSession(messages);
     console.log(gray + '---' + reset);
 }
 
@@ -251,7 +362,7 @@ async function executeToolCommand(command: string) {
     }
 
     if (command.startsWith("editFile(")) {
-      const match = command.match(/editFile\("(.*?)",\s*"([\s\S]*)"\)$/);
+      const match = command.match(/editFile\("(.*?)",\\s*"([\\s\\S]*)"\)$/);
       const filePath = match?.[1] || "";
       const content = match?.[2] || "";
       const realContent = decodeAICode(content);
@@ -269,13 +380,13 @@ async function executeToolCommand(command: string) {
     }
 
     if (command.startsWith("createTodoList(")) {
-      const match = command.match(/createTodoList\(([\s\S]*)\)$/);
+      const match = command.match(/createTodoList\(([\\s\\S]*)\)$/);
       const todosJson = match?.[1] || "[]";
       return await todo.createTodoList(todosJson);
     }
 
     if (command.startsWith("updateTodoStatus(")) {
-      const match = command.match(/updateTodoStatus\("(.*?)",\s*"(.*?)"\)/);
+      const match = command.match(/updateTodoStatus\("(.*?)",\\s*"(.*?)"\)/);
       const id = match?.[1] || "";
       const status = match?.[2] || "pending";
       return await todo.updateTodoStatus(id, status as any);
@@ -286,7 +397,7 @@ async function executeToolCommand(command: string) {
     }
 
     if (command.startsWith("addTodo(")) {
-      const match = command.match(/addTodo\("(.*?)"(?:,\s*"(.*?)")?\)/);
+      const match = command.match(/addTodo\("(.*?)"(?:,\\\s*"(.*?)")?\)/);
       const content = match?.[1] || "";
       const priority = match?.[2] || "medium";
       return await todo.addTodo(content, priority as any);
@@ -311,13 +422,19 @@ async function executeToolCommand(command: string) {
       child.stderr?.on('data', collectOutput);
       await new Promise(r => setTimeout(r,3500));
       child.unref();
-      return `✅ 进程已在后台启动 (PID: ${child.pid})\n\n初始输出：\n${output}`;
+      return `✅ 进程已在后台启动 (PID: ${child.pid})\
+\
+初始输出：\
+${output}`;
     }
 
     if (isInteractiveCommand(command)) {
       console.log(`${yellow}⚠️  检测到交互式命令，正在使用PTY模式执行...${reset}`);
       const result = await execInteractive(command, { timeout:60000, showOutput:true });
-      if (result.needsInput) return `${yellow}⚠️  命令需要用户输入，请在终端中继续操作。${reset}\n\n当前输出：\n${result.output}`;
+      if (result.needsInput) return `${yellow}⚠️  命令需要用户输入，请在终端中继续操作。${reset}\
+\
+当前输出：\
+${result.output}`;
       return result.output;
     }
 
