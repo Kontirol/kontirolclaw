@@ -1,18 +1,27 @@
+/**
+ * 交互式命令执行工具模块
+ * 用于处理需要用户交互的命令（如 npm create、git commit 等）
+ * 以及长时间运行的进程（如开发服务器）
+ */
+
 import * as os from 'node:os';
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import treeKill from 'tree-kill';
 
-// 颜色常量
+// 终端输出颜色常量
 const reset = "\x1b[0m";
 const green = "\x1b[32m";
 const yellow = "\x1b[33m";
 const red = "\x1b[31m";
 
-// ==============================
+// =============================================================
 // 交互式命令检测
-// ==============================
+// =============================================================
 
-// 需要交互式输入的命令模式
+/**
+ * 需要交互式输入的命令模式列表
+ * 这些命令在执行过程中会暂停等待用户输入
+ */
 const INTERACTIVE_PATTERNS = [
   // npm create/init 系列
   /^npm\s+create\s+/i,
@@ -42,16 +51,21 @@ const INTERACTIVE_PATTERNS = [
 
 /**
  * 检测命令是否需要交互式输入
+ * @param command - 要检测的命令字符串
+ * @returns true表示命令需要交互式输入，false表示普通命令
  */
 export function isInteractiveCommand(command: string): boolean {
   return INTERACTIVE_PATTERNS.some(pattern => pattern.test(command.trim()));
 }
 
-// ==============================
+// =============================================================
 // 长期运行进程检测
-// ==============================
+// =============================================================
 
-// 长期运行进程的命令模式（不会自动退出）
+/**
+ * 长期运行进程的命令模式列表
+ * 这些命令会持续运行，不会自动退出（如开发服务器）
+ */
 const LONG_RUNNING_PATTERNS = [
   // 开发服务器
   /npm\s+run\s+(dev|serve|start|watch)/i,
@@ -77,15 +91,20 @@ const LONG_RUNNING_PATTERNS = [
 
 /**
  * 检测命令是否是长期运行进程
+ * @param command - 要检测的命令字符串
+ * @returns true表示命令会长期运行，false表示普通命令
  */
 export function isLongRunningCommand(command: string): boolean {
   return LONG_RUNNING_PATTERNS.some(pattern => pattern.test(command.trim()));
 }
 
-// ==============================
+// =============================================================
 // 交互式命令执行器
-// ==============================
+// =============================================================
 
+/**
+ * 交互式命令执行选项
+ */
 export interface InteractiveOptions {
   /** 超时时间（毫秒），默认30秒 */
   timeout?: number;
@@ -93,7 +112,7 @@ export interface InteractiveOptions {
   cols?: number;
   /** 终端行数 */
   rows?: number;
-  /** 自动响应规则 */
+  /** 自动响应规则数组 */
   autoResponses?: AutoResponse[];
   /** 是否显示输出到控制台 */
   showOutput?: boolean;
@@ -101,8 +120,12 @@ export interface InteractiveOptions {
   cwd?: string;
 }
 
+/**
+ * 自动响应规则
+ * 用于在检测到特定输出时自动输入内容
+ */
 export interface AutoResponse {
-  /** 匹配模式（字符串或正则） */
+  /** 匹配模式（字符串或正则表达式） */
   pattern: string | RegExp;
   /** 自动响应内容 */
   response: string;
@@ -112,12 +135,26 @@ export interface AutoResponse {
 
 /**
  * 执行交互式命令
- * @returns 包含输出和是否需要用户输入的结果
+ * 使用PTY（伪终端）在后台执行命令，支持交互式输入
+ * @param command - 要执行的命令
+ * @param options - 执行选项
+ * @returns 包含输出和是否需要用户输入的结果对象
+ * 
+ * @example
+ * // 执行需要交互的命令
+ * const result = await execInteractive('npm create vue@latest my-app', {
+ *   timeout: 60000,
+ *   showOutput: true,
+ *   autoResponses: [
+ *     { pattern: 'Project name:', response: 'my-app' }
+ *   ]
+ * });
  */
 export async function execInteractive(
   command: string, 
   options: InteractiveOptions = {}
 ): Promise<{ output: string; needsInput: boolean; ptyProcess?: any }> {
+  // 解构配置项，设置默认值
   const {
     timeout = 30000,
     cols = 120,
@@ -127,17 +164,18 @@ export async function execInteractive(
     cwd = process.cwd()
   } = options;
 
-  // 选择shell
+  // 选择合适的shell：Windows用cmd或powershell，其他用bash
   const shell = os.platform() === 'win32' 
     ? (process.env.ComSpec || 'powershell.exe')
     : 'bash';
 
+  // 返回Promise以便异步执行
   return new Promise((resolve, reject) => {
     let output = '';
     let resolved = false;
     let ptyProcess: any = null;
 
-    // 超时处理
+    // 超时定时器
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
@@ -158,14 +196,14 @@ export async function execInteractive(
         env: process.env as { [key: string]: string },
       });
 
-      // 处理输出
+      // 处理命令输出
       ptyProcess.onData((data: string) => {
         output += data;
         if (showOutput) {
           process.stdout.write(data);
         }
 
-        // 检查自动响应
+        // 检查自动响应规则
         for (const rule of autoResponses) {
           const pattern = typeof rule.pattern === 'string'
             ? new RegExp(escapeRegex(rule.pattern), 'i')
@@ -193,7 +231,7 @@ export async function execInteractive(
         }
       });
 
-      // 发送命令
+      // 发送命令到PTY
       ptyProcess.write(command + '\r');
 
       // 检测是否需要用户输入（等待2秒后检查）
@@ -218,6 +256,10 @@ export async function execInteractive(
 
 /**
  * 检测输出是否需要用户输入
+ * @private
+ * 通过检测输出中的常见交互提示来判断
+ * @param output - 命令输出内容
+ * @returns 是否需要用户输入
  */
 function needsUserInput(output: string): boolean {
   const inputIndicators = [
@@ -236,6 +278,10 @@ function needsUserInput(output: string): boolean {
 
 /**
  * 安全杀死进程（包括子进程树）
+ * @private
+ * 在Windows上需要使用tree-kill杀死整个进程树
+ * @param ptyProcess - PTY进程对象
+ * @param pid - 进程ID
  */
 function safeKill(ptyProcess: any, pid: number): void {
   try {
@@ -259,23 +305,43 @@ function safeKill(ptyProcess: any, pid: number): void {
 
 /**
  * 转义正则表达式特殊字符
+ * @private
+ * @param str - 要转义的字符串
+ * @returns 转义后的字符串
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ==============================
+// =============================================================
 // 交互式会话管理器
-// ==============================
+// =============================================================
 
+/**
+ * 交互式会话类
+ * 用于管理需要长时间交互的终端会话
+ * 可以发送输入、获取输出、关闭会话
+ */
 export class InteractiveSession {
+  /** PTY进程对象 */
   private ptyProcess: any;
+  /** 累积的输出内容 */
   private output: string = '';
+  /** 会话是否已关闭 */
   private closed: boolean = false;
+  /** 要执行的命令 */
   private command: string;
+  /** 输出回调函数 */
   private onResponse: (output: string) => void;
+  /** 工作目录 */
   private cwd: string;
 
+  /**
+   * 构造函数
+   * @param command - 要执行的命令
+   * @param onResponse - 处理输出的回调函数
+   * @param cwd - 工作目录（可选，默认当前目录）
+   */
   constructor(command: string, onResponse: (output: string) => void, cwd?: string) {
     this.command = command;
     this.onResponse = onResponse;
@@ -284,12 +350,14 @@ export class InteractiveSession {
 
   /**
    * 启动交互式会话
+   * 创建PTY进程并执行命令
    */
   async start(): Promise<void> {
     const shell = os.platform() === 'win32' 
       ? (process.env.ComSpec || 'powershell.exe')
       : 'bash';
 
+    // 创建PTY进程
     this.ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
@@ -298,11 +366,13 @@ export class InteractiveSession {
       env: process.env as { [key: string]: string },
     });
 
+    // 监听数据输出
     this.ptyProcess.onData((data: string) => {
       this.output += data;
       this.onResponse(data);
     });
 
+    // 监听进程退出
     this.ptyProcess.onExit(() => {
       this.closed = true;
     });
@@ -313,6 +383,8 @@ export class InteractiveSession {
 
   /**
    * 发送输入到进程
+   * 用于在会话运行过程中向进程发送数据
+   * @param data - 要发送的数据
    */
   write(data: string): void {
     if (!this.closed && this.ptyProcess) {
@@ -322,6 +394,8 @@ export class InteractiveSession {
 
   /**
    * 获取当前输出
+   * 返回会话至今的所有输出累积
+   * @returns 输出字符串
    */
   getOutput(): string {
     return this.output;
@@ -329,6 +403,7 @@ export class InteractiveSession {
 
   /**
    * 关闭会话
+   * 终止PTY进程，结束交互式会话
    */
   close(): void {
     if (!this.closed && this.ptyProcess) {
@@ -339,17 +414,23 @@ export class InteractiveSession {
 
   /**
    * 检查会话是否已关闭
+   * @returns 会话是否已关闭
    */
   isClosed(): boolean {
     return this.closed;
   }
 }
 
-// ==============================
+// =============================================================
 // 常用交互式命令的自动响应配置
-// ==============================
+// =============================================================
 
+/**
+ * 预定义的常用命令自动响应规则
+ * 包含一些常见CLI工具的默认交互选项
+ */
 export const COMMON_AUTO_RESPONSES: Record<string, AutoResponse[]> = {
+  // Vue项目创建
   'npm create vue@latest': [
     { pattern: 'Project name:', response: 'my-vue-app' },
     { pattern: 'Add TypeScript?', response: 'Yes' },
@@ -360,6 +441,7 @@ export const COMMON_AUTO_RESPONSES: Record<string, AutoResponse[]> = {
     { pattern: 'Add ESLint?', response: 'No' },
     { pattern: 'Add Prettier?', response: 'No' },
   ],
+  // Vite项目创建
   'npm init vite': [
     { pattern: 'Project name:', response: 'my-vite-app' },
     { pattern: 'Select a framework:', response: 'vue' },
@@ -369,6 +451,9 @@ export const COMMON_AUTO_RESPONSES: Record<string, AutoResponse[]> = {
 
 /**
  * 获取命令的自动响应配置
+ * 根据命令内容匹配预定义的自动响应规则
+ * @param command - 要执行的命令
+ * @returns 匹配到的自动响应规则数组，如果没有则返回空数组
  */
 export function getAutoResponses(command: string): AutoResponse[] {
   for (const [pattern, responses] of Object.entries(COMMON_AUTO_RESPONSES)) {
