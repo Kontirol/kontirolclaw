@@ -1,49 +1,45 @@
 {
-  "name": "personal-blog",
+  "name": "kontirolclaw",
   "version": "1.0.0",
-  "description": "A personal blog built with Vue.js",
-  "main": "src/main.js",
+  "description": "AI-powered CLI agent that executes commands through natural language interaction",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "start": "node --env-file=.env src/index.ts",
-    "start:new": "node --env-file=.env src/index.ts --new-session",
-    "start:list": "node --env-file=.env src/index.ts --list",
-    "start:session": "node --env-file=.env src/index.ts --session",
+    "start": "tsx --env-file=.env src/index.ts",
+    "start:new": "tsx --env-file=.env src/index.ts --new-session",
+    "start:list": "tsx --env-file=.env src/index.ts --list",
+    "start:session": "tsx --env-file=.env src/index.ts --session",
     "ollama": "node --env-file=.env src/ollama.ts",
     "ollama:new": "node --env-file=.env src/ollama.ts --new-session",
     "ollama:list": "node --env-file=.env src/ollama.ts --list",
     "ollama:session": "node --env-file=.env src/ollama.ts --session",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
-    "blog",
-    "vue",
-    "personal"
+    "ai",
+    "cli",
+    "agent",
+    "natural-language",
+    "automation",
+    "command-line"
   ],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.0",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "axios": "^1.6.0",
-    "element-plus": "^2.4.0",
     "ollama": "^0.6.3",
     "openai": "^6.32.0",
-    "pinia": "^2.1.0",
     "screenshot-desktop": "^1.15.3",
-    "tree-kill": "^1.2.2",
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0"
+    "tree-kill": "^1.2.2"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@vitejs/plugin-vue": "^5.0.0",
-    "sass": "^1.69.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "typescript": "^5.3.0"
   }
 }
