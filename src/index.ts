@@ -31,10 +31,10 @@ import os from 'os';                                    // 操作系统信息
 import { fileURLToPath } from 'url';                    // ESM 模块路径处理
 
 // 导入自定义工具模块
-import * as file from './tools/file.ts';              // 文件操作工具
-import * as todo from './tools/todo.ts';                // 待办事项管理工具
-import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive.ts';  // 交互式命令工具
-import { SessionManager } from './session/session-manager.ts';  // 会话管理器
+import * as file from './tools/file';              // 文件操作工具
+import * as todo from './tools/todo';                // 待办事项管理工具
+import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive';  // 交互式命令工具
+import { SessionManager } from './session/session-manager';  // 会话管理器
 
 // =============================================================
 // 类型定义
@@ -433,22 +433,30 @@ function forcePureJson(text: string): string {
  * 主循环：持续获取用户输入、处理请求、返回结果
  * 循环直到用户输入 "exit"
  */
+
+const spinner = ['|', '/', '-', '\\'];
+let i = 0;
+
 while (true) {
     // 获取用户输入
     const userInput = await rl.question(yellow + '请输入您的问题(输入 "exit" 退出)：');
-
+    const timer = setInterval(() => {
+        process.stdout.write(`\rAI 思考中 ${spinner[i++ % spinner.length]} `);
+    }, 100);
     // 用户退出处理
     if (userInput.toLowerCase() === 'exit') {
         // 退出前保存会话
         const sessionMessages: SessionMessage[] = messages.map(openaiToSessionMessage);
         sessionManager.updateCurrentSession(sessionMessages);
         console.log('再见');
+        clearInterval(timer);
+        process.stdout.write('\r'); // 清空动画行
         break;
     }
 
     // 添加用户消息到历史
     messages.push({ role: 'user', content: userInput })
-
+    
     // 调用 AI 模型获取回复
     let completion = await client.chat.completions.create({
         model: process.env['MODEL']!,
@@ -457,7 +465,9 @@ while (true) {
     });
 
     let assistantMessage = completion.choices[0].message.content || '';
-    
+    // 停止动画（AI 返回结果后执行）
+    clearInterval(timer);
+    process.stdout.write('\r'); // 清空动画行
     // 解析 AI 回复
     let aiMessage;
     let keys;

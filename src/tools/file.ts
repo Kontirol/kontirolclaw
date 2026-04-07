@@ -41,9 +41,34 @@ export async function readFile(filePath: string): Promise<string> {
   try {
     const safePath = validateSafePath(filePath);
     const content = await fs.readFile(safePath, 'utf8');
-    return `✅ 已读取文件：${filePath}\n内容：\n${content}`;
+    const ext = path.extname(safePath).toLowerCase().slice(1);
+    const language = ext || 'text';
+
+    // 生成行号（自动宽度对齐）
+    const lines = content.split('\n');
+    const lineNumWidth = lines.length.toString().length;
+    const numberedLines = lines
+      .map((line, idx) => {
+        const num = (idx + 1).toString().padStart(lineNumWidth, ' ');
+        return `${num} │ ${line}`;
+      })
+      .join('\n');
+
+    // 编辑器风格 + 行号 + 语言 + 状态
+    return `
+📄 文件：${filePath}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${numberedLines}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+\`语言：${language}    总行数：${lines.length}\`
+✅ 读取完成
+    `.trim();
   } catch (e: any) {
-    return `❌ 读取文件失败：${e.message}`;
+    return `
+❌ 读取失败
+文件：${filePath}
+错误：${e.message}
+    `.trim();
   }
 }
 
@@ -56,42 +81,78 @@ export async function readFile(filePath: string): Promise<string> {
  * @param content - 文件初始内容（默认空字符串）
  * @returns 成功或已存在的提示信息
  */
+// =============================================================
+// 工具2：创建新文件（不存在则创建，已存在则提示）
+// =============================================================
 export async function createFile(filePath: string, content = ''): Promise<string> {
   try {
     const safePath = validateSafePath(filePath);
-    // 检查文件是否已存在
+
     if (fsSync.existsSync(safePath)) {
-      return `⚠️ 文件已存在：${filePath}，请使用 editFile 修改`;
+      return `
+⚠️ 文件已存在，无法创建
+文件：${filePath}
+提示：请使用 editFile 命令修改
+      `.trim();
     }
-    // 递归创建目录并写入文件
+
     await fs.mkdir(path.dirname(safePath), { recursive: true });
     await fs.writeFile(safePath, content, 'utf8');
-    return `✅ 文件已创建：${filePath}`;
+
+    const ext = path.extname(safePath).toLowerCase().slice(1);
+    const language = ext || 'text';
+    const lines = content.split('\n');
+    const lineCount = lines.length;
+
+    return `
+✅ 文件创建成功
+📄 ${filePath}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+\`\`\`${language}
+${content || '(空文件)'}
+\`\`\`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+语言：${language} ｜ 总行数：${lineCount}
+    `.trim();
   } catch (e: any) {
-    return `❌ 创建文件失败：${e.message}`;
+    return `
+❌ 创建文件失败
+文件：${filePath}
+错误：${e.message}
+    `.trim();
   }
 }
 
 // =============================================================
 // 工具3：编辑/覆盖文件（强制写入）
 // =============================================================
-/**
- * 编辑文件内容，会覆盖原文件内容
- * 如果文件不存在会自动创建，目录不存在会自动创建
- * @param filePath - 文件路径
- * @param content - 要写入的内容
- * @returns 成功或失败的提示信息
- */
 export async function editFile(filePath: string, content: string): Promise<string> {
   try {
     const safePath = validateSafePath(filePath);
-    // 确保目录存在
     await fs.mkdir(path.dirname(safePath), { recursive: true });
-    // 强制写入文件（覆盖原内容）
     await fs.writeFile(safePath, content, 'utf8');
-    return `✅ 文件已修改：${filePath}`;
+
+    const ext = path.extname(safePath).toLowerCase().slice(1);
+    const language = ext || 'text';
+    const lines = content.split('\n');
+    const lineCount = lines.length;
+
+    return `
+✅ 文件修改成功
+📄 ${filePath}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+\`\`\`${language}
+${content}
+\`\`\`
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+语言：${language} ｜ 总行数：${lineCount}
+    `.trim();
   } catch (e: any) {
-    return `❌ 编辑文件失败：${e.message}`;
+    return `
+❌ 编辑文件失败
+文件：${filePath}
+错误：${e.message}
+    `.trim();
   }
 }
 
