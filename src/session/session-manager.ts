@@ -98,9 +98,9 @@ export class SessionManager {
     // 获取当前用户的主目录
     const homeDir = os.homedir();
     // 设置会话存储目录：~/.kontirolclaw/sessions
-    this.sessionsDir = path.join(homeDir, '.kontirolclaw', 'sessions');
+    this.sessionsDir = path.join(homeDir, '.ctrl', 'sessions');
     // 设置索引文件路径：~/.kontirolclaw/session-index.json
-    this.indexFile = path.join(homeDir, '.kontirolclaw', 'session-index.json');
+    this.indexFile = path.join(homeDir, '.ctrl', 'session-index.json');
     
     // 确保会话目录存在，如果不存在则递归创建
     if (!fs.existsSync(this.sessionsDir)) {

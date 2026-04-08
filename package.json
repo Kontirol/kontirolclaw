@@ -3,15 +3,18 @@
   "version": "1.0.0",
   "description": "AI-powered CLI agent that executes commands through natural language interaction",
   "main": "dist/index.js",
+  "bin": {
+  "ctrl": "./dist/index.js"
+},
   "scripts": {
-    "start": "tsx --env-file=.env src/index.ts",
-    "start:new": "tsx --env-file=.env src/index.ts --new-session",
-    "start:list": "tsx --env-file=.env src/index.ts --list",
-    "start:session": "tsx --env-file=.env src/index.ts --session",
-    "ollama": "node --env-file=.env src/ollama.ts",
-    "ollama:new": "node --env-file=.env src/ollama.ts --new-session",
-    "ollama:list": "node --env-file=.env src/ollama.ts --list",
-    "ollama:session": "node --env-file=.env src/ollama.ts --session",
+    "start": "tsx src/index.ts",
+    "start:new": "tsx src/index.ts --new-session",
+    "start:list": "tsx src/index.ts --list",
+    "start:session": "tsx src/index.ts --session",
+    "ollama": "node src/ollama.ts",
+    "ollama:new": "node src/ollama.ts --new-session",
+    "ollama:list": "node src/ollama.ts --list",
+    "ollama:session": "node src/ollama.ts --session",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

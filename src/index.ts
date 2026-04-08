@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * KontirolClaw 主入口文件 - OpenAI API 模式
  * 
@@ -31,10 +32,10 @@ import os from 'os';                                    // 操作系统信息
 import { fileURLToPath } from 'url';                    // ESM 模块路径处理
 
 // 导入自定义工具模块
-import * as file from './tools/file';              // 文件操作工具
-import * as todo from './tools/todo';                // 待办事项管理工具
-import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive';  // 交互式命令工具
-import { SessionManager } from './session/session-manager';  // 会话管理器
+import * as file from './tools/file.js';              // 文件操作工具
+import * as todo from './tools/todo.js';                // 待办事项管理工具
+import { isInteractiveCommand, execInteractive, InteractiveSession, isLongRunningCommand } from './tools/interactive.js';  // 交互式命令工具
+import { SessionManager } from './session/session-manager.js';  // 会话管理器
 
 // =============================================================
 // 类型定义
@@ -146,10 +147,36 @@ const rl = readline.createInterface({
  * - OPENAI_API_KEY: API 密钥
  * - OPENAI_BASE_URL: API 地址（Moonshot 为 https://api.moonshot.cn/v1）
  */
+// 读取用户目录下的 .ctrl/config.json
+const configDir = path.join(os.homedir(), '.ctrl');
+const configPath = path.join(configDir, '.env');
+
+// 确保配置文件夹存在
+if (!fs.existsSync(configDir)) {
+  fs.mkdirSync(configDir, { recursive: true });
+}
+
+// 读取配置
+const config: Record<string, string> = {};
+if (fs.existsSync(configPath)) {
+  const raw = fs.readFileSync(configPath, 'utf8');
+  raw.split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const [key, ...rest] = trimmed.split('=');
+    if (key) config[key.trim()] = rest.join('=').trim();
+  });
+}
+
+// 初始化 OpenAI 客户端
 const client = new OpenAI({
-    apiKey: process.env['OPENAI_API_KEY'],
-    baseURL: process.env['OPENAI_BASE_URL'],
+  apiKey: config.OPENAI_API_KEY,
+  baseURL: config.OPENAI_BASE_URL,
 });
+// const client = new OpenAI({
+//     apiKey: process.env['OPENAI_API_KEY'],
+//     baseURL: process.env['OPENAI_BASE_URL'],
+// });
 
 // =============================================================
 // 系统消息（Prompt）- 告诉 AI 模型如何工作
@@ -459,7 +486,7 @@ while (true) {
     
     // 调用 AI 模型获取回复
     let completion = await client.chat.completions.create({
-        model: process.env['MODEL']!,
+        model:config.MODEL,
         messages: messages,
         temperature: 0.6
     });
@@ -507,7 +534,7 @@ while (true) {
 
         // 再次调用 AI，获取下一步指示
         completion = await client.chat.completions.create({
-            model: process.env['MODEL']!,
+            model:config.MODEL,
             messages: messages,
             temperature: 0.6
         });
