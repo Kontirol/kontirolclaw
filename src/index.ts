@@ -490,11 +490,10 @@ while (true) {
         messages: messages,
         temperature: 0.6
     });
-
+    
     let assistantMessage = completion.choices[0].message.content || '';
     // 停止动画（AI 返回结果后执行）
-    clearInterval(timer);
-    process.stdout.write('\r'); // 清空动画行
+    
     // 解析 AI 回复
     let aiMessage;
     let keys;
@@ -548,7 +547,8 @@ while (true) {
             keys = ['text'];
         }
     }
-
+    clearInterval(timer);
+    process.stdout.write('\r'); // 清空动画行
     // 处理不同类型的返回
     if (keys[0] === 'text') {
         const text = aiMessage.text;
