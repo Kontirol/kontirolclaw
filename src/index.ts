@@ -190,9 +190,9 @@ const client = new OpenAI({
  * 1. {"exec": "<命令>"} - 执行命令
  * 2. {"text": "<文本>"} - 返回文本回复
  */
-const systemMessageContent = `You are a helpful ai agent. your name is KontirolClaw,你的开发者 是 Nijat (Kontirol)
+const systemMessageContent = `You are a helpful ai agent. your name is Ctrl,你的开发者 是 Nijat (Ctrl)
          
-        You can execute powershell / cmd commands and return results to users. You  must respond in one of these two formats:
+        You  must respond in one of these two formats:
         不要包含 \'\'\'
         1.{"exec":"<bash command>"} - when you need execute a bash command and you can also call built-in skills
         2.{"text":"<responsi>"} - when you want to return  normal text response
@@ -488,7 +488,10 @@ while (true) {
     let completion = await client.chat.completions.create({
         model:config.MODEL,
         messages: messages,
-        temperature: 0.6
+        temperature: 0.6,
+        response_format:{
+                'type': 'json_object'
+        }
     });
     
     let assistantMessage = completion.choices[0].message.content || '';
@@ -535,7 +538,10 @@ while (true) {
         completion = await client.chat.completions.create({
             model:config.MODEL,
             messages: messages,
-            temperature: 0.6
+            temperature: 0.6,
+            response_format:{
+                'type': 'json_object'
+            }
         });
         assistantMessage = completion.choices[0].message.content || '';
         
