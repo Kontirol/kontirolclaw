@@ -19,7 +19,7 @@ const rl = readline.createInterface({
 
 
 // 提示词
-let message = [{ role: "system", content: "你是一个AI助手，专门帮助用户。每一条回复都需要帮用户介绍。" }]
+let message = [{ role: "system", content: "你是一个AI助手，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)" }]
 
 // 主函数
 async function main() {
@@ -69,7 +69,7 @@ async function main() {
                     } catch (error) {
                         result = `错误：调用工具 ${toolName} 失败。\n原因：${err.message}\n收到的参数原始字符串：${toolCall.function.arguments}\n请检查参数格式是否正确（必须是严格 JSON，键和字符串值使用双引号）。`;
                     }
-                    console.log("正在调用："+toolName+"// -> "+toolArgs);
+                    console.log("正在调用："+toolName);
                     // 把工具执行结果作为一条 tool 消息加入历史
                     message.push({
                         role: "tool",

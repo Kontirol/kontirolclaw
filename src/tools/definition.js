@@ -93,5 +93,60 @@ export const toolDefinitions = [
         required: ["command"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "todo_create",
+      description: "添加一个新的待办任务",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "任务标题" },
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "todo_list",
+      description: "列出当前所有的待办任务",
+      parameters: {   // 没有参数也可以，但可以用空对象
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+  type: "function",
+  function: {
+    name: "todo_update",
+    description: "更新一个已存在的待办任务（可以改标题、完成状态、截止日期）",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "要更新的任务ID" },
+        title: { type: "string", description: "新的标题（可选）" },
+        completed: { type: "boolean", description: "是否完成（可选）" },
+      },
+      required: ["id"]
+    }
   }
+},
+{
+  type: "function",
+  function: {
+    name: "todo_delete",
+    description: "删除一个待办任务",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "要删除的任务ID" }
+      },
+      required: ["id"]
+    }
+  }
+}
 ];

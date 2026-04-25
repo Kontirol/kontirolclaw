@@ -64,6 +64,15 @@ export async function executeToolCall(toolName, args) {
     return `❌ 安全限制：不能操作当前目录以外的路径`;
   }
 
+  /**
+   * todo部分
+   */
+  let todos = [];           // 每个任务对象：{ id, title, completed, createdAt, due? }
+  let nextId = 1;
+/**
+   * todo部分
+   */
+
   switch (toolName) {
     case 'read_file': {
       try {
@@ -116,6 +125,68 @@ export async function executeToolCall(toolName, args) {
 
       const shell = args.shell || "powershell";
       return await runCommand(command, shell);
+    }
+    case "todo_create":{
+      try {
+        const todo = {id: nextId++, title:args.title, completed: false, createdAt: new Date().toISOString()}
+        todos.push(todo)
+        return `创建 todo ID:${nextId} ,title: ${args.title}完成`;
+      } catch (error) {
+        return `创建todo 失败 ${error.message}`;
+      }
+    }
+    case "todo_list":{
+      try {
+        if(todos.length === 0){
+          return "暂无待办任务"
+        }
+        let result = "📋 待办列表：\n";
+        for (let i = 0; i < todos.length; i++) {
+          const t = todos[i];
+          const status = t.completed ? "✓" : "◻";
+          result += `${t.id}. [${status}] ${t.title}\n`;
+        }
+        return result;
+      } catch (error) {
+        return `失败 ${error.message}`
+      }
+    }
+    case "todo_update": {
+      try {
+        const index = todos.findIndex(t => t.id === id);
+        if (index === -1) {
+          return `❌ 未找到 ID 为 ${id} 的任务`;
+        }
+        const todo = todos[index];
+        // 更新标题（如果提供了）
+        if (args.title !== undefined) {
+          todo.title = args.title;
+        }
+        // 更新完成状态（如果提供了且为布尔值）
+        if (typeof args.completed === "boolean") {
+          todo.completed = args.completed;
+        }
+        // 更新截止日期（如果提供了，可选功能）
+        if (args.due !== undefined) {
+          todo.due = args.due;
+        }
+        return `✅ 任务 #${id} 已更新`;
+      } catch (error) {
+        return `❌ 更新任务失败: ${error.message}`;
+      }
+    }
+    case "todo_delete": {
+      try {
+        const id = args.id;
+        const index = todos.findIndex(t => t.id === id);
+        if (index === -1) {
+          return `❌ 未找到 ID 为 ${id} 的任务`;
+        }
+        const deleted = todos.splice(index, 1)[0];
+        return `✅ 已删除任务 #${id}: "${deleted.title}"`;
+      } catch (error) {
+        return `❌ 删除任务失败: ${error.message}`;
+      }
     }
     default:
       return `未知工具：${toolName}`;
