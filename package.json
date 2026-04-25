@@ -1,0 +1,27 @@
+{
+  "name": "kontirolclaw",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "bin":"src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kontirol/KontirolClaw.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Kontirol/KontirolClaw/issues"
+  },
+  "homepage": "https://github.com/Kontirol/KontirolClaw#readme",
+  "dependencies": {
+    "openai": "^6.34.0",
+    "readline": "^1.3.0"
+  }
+}
