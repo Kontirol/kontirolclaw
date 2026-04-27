@@ -19,7 +19,10 @@ const rl = readline.createInterface({
 
 
 // 提示词
-let message = [{ role: "system", content: "你是一个AI助手，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)" }]
+let message = [{ role: "system", content: `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl)开发你的，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)
+    
+     
+    ` }]
 
 // 主函数
 async function main() {
@@ -42,7 +45,7 @@ async function main() {
             // 调用模型
             let completion = await client.chat.completions.create({
                 messages: message,
-                model: "deepseek-v4-flash",
+                model: "deepseek-v4-pro",
                 // thinking: { "type": "enabled" },
                 // reasoning_effort: "high",
                 stream: false,
@@ -57,7 +60,7 @@ async function main() {
             while (responseMessage.tool_calls && responseMessage.tool_calls.length > 0 && iteration < MAX_ITERATIONS) {
                 iteration++;
                 // console.log(iteration+"次循环");
-                
+
                 //调用工具
                 for (const toolCall of responseMessage.tool_calls) {
                     const toolName = toolCall.function.name;
@@ -69,7 +72,9 @@ async function main() {
                     } catch (error) {
                         result = `错误：调用工具 ${toolName} 失败。\n原因：${err.message}\n收到的参数原始字符串：${toolCall.function.arguments}\n请检查参数格式是否正确（必须是严格 JSON，键和字符串值使用双引号）。`;
                     }
-                    console.log("正在调用："+toolName);
+                    // console.log("正在调用：" + toolName);
+                    // console.log('\x1b[34m%s\x1b[0m', result);
+                    
                     // 把工具执行结果作为一条 tool 消息加入历史
                     message.push({
                         role: "tool",
@@ -79,7 +84,7 @@ async function main() {
                 }
                 completion = await client.chat.completions.create({
                     messages: message,
-                    model: "deepseek-v4-flash",
+                    model: "deepseek-v4-pro",
                     stream: false,
                     tools: toolDefinitions,
                 });
@@ -88,8 +93,8 @@ async function main() {
                 message.push(responseMessage);
             }
             if (iteration >= MAX_ITERATIONS) {
-                    console.warn('⚠️ 达到最大工具调用次数，强制结束。');
-                }
+                console.warn('⚠️ 达到最大工具调用次数，强制结束。');
+            }
             spinner.stop('✅ 完成');
             console.log(responseMessage.content);
             rl.prompt()

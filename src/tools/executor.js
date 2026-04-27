@@ -67,15 +67,15 @@ export async function executeToolCall(toolName, args) {
   /**
    * todo部分
    */
+  /**
+     * todo部分
+     */
   let todos = [];           // 每个任务对象：{ id, title, completed, createdAt, due? }
-  let nextId = 1;
-/**
-   * todo部分
-   */
-
+  
   switch (toolName) {
     case 'read_file': {
       try {
+          console.log('\x1b[34m%s\x1b[0m', `正在读取${fullPath}`);
         return fs.readFileSync(fullPath, 'utf-8');
       } catch (err) {
         return `读取文件失败：${err.message}`;
@@ -83,6 +83,7 @@ export async function executeToolCall(toolName, args) {
     }
     case 'create_file': {
       try {
+          console.log('\x1b[34m%s\x1b[0m', `正在创建 ${fullPath}`);
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
         return `文件 ${args.filename} 创建/更新成功`;
       } catch (err) {
@@ -91,6 +92,7 @@ export async function executeToolCall(toolName, args) {
     }
     case 'delete_file': {
       try {
+        console.log('\x1b[31m%s\x1b[0m', `删除了 ${fullPath}`);
         fs.unlinkSync(fullPath);
         return `文件 ${args.filename} 已删除`;
       } catch (err) {
@@ -100,16 +102,18 @@ export async function executeToolCall(toolName, args) {
     case 'edit_file': {
       // edit 本质上和 create 一样都是覆盖写入
       try {
+        console.log('\x1b[34m%s\x1b[0m', `修改 ${fullPath}`);
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
         return `文件 ${args.filename} 已修改`;
       } catch (err) {
         return `修改文件失败：${err.message}`;
       }
     }
-    case 'read_dir':{
+    case 'read_dir': {
       try {
         const options = { withFileTypes: args.dirname || false };
         const files = fs.readdirSync(fullPath, options);
+        console.log('\x1b[34m%s\x1b[0m', `查看目录: ${fullPath,options}`);
         return JSON.stringify(files);
       } catch (error) {
         return `读取文件失败：${err.message}`;
@@ -124,28 +128,32 @@ export async function executeToolCall(toolName, args) {
       }
 
       const shell = args.shell || "powershell";
+      console.log('\x1b[32m%s\x1b[0m', `执行命令: ${command}`);
       return await runCommand(command, shell);
     }
-    case "todo_create":{
+    case "todo_create": {
+      let nextId = 1;
       try {
-        const todo = {id: nextId++, title:args.title, completed: false, createdAt: new Date().toISOString()}
+        const todo = { id: nextId++, title: args.title, completed: false, createdAt: new Date().toISOString() }
         todos.push(todo)
-        return `创建 todo ID:${nextId} ,title: ${args.title}完成`;
+        console.log('\x1b[34m%s\x1b[0m',`创建 todo ID:${todo.id} ,title: ${args.title}完成`);
+        return `创建 todo ID:${todo.id} ,title: ${args.title}完成`;
       } catch (error) {
         return `创建todo 失败 ${error.message}`;
       }
     }
-    case "todo_list":{
+    case "todo_list": {
       try {
-        if(todos.length === 0){
+        if (todos.length === 0) {
           return "暂无待办任务"
         }
         let result = "📋 待办列表：\n";
         for (let i = 0; i < todos.length; i++) {
           const t = todos[i];
-          const status = t.completed ? "✓" : "◻";
+          const status = t.completed ? true : false;
           result += `${t.id}. [${status}] ${t.title}\n`;
         }
+        console.log('\x1b[34m%s\x1b[0m',result);
         return result;
       } catch (error) {
         return `失败 ${error.message}`
@@ -170,9 +178,10 @@ export async function executeToolCall(toolName, args) {
         if (args.due !== undefined) {
           todo.due = args.due;
         }
-        return `✅ 任务 #${id} 已更新`;
+        console.log('\x1b[34m%s\x1b[0m',`任务 #${id} 已更新`);
+        return `任务 #${id} 已更新`;
       } catch (error) {
-        return `❌ 更新任务失败: ${error.message}`;
+        return `更新任务失败: ${error.message}`;
       }
     }
     case "todo_delete": {
@@ -183,6 +192,7 @@ export async function executeToolCall(toolName, args) {
           return `❌ 未找到 ID 为 ${id} 的任务`;
         }
         const deleted = todos.splice(index, 1)[0];
+        console.log('\x1b[34m%s\x1b[0m',`✅ 已删除任务 #${id}: "${deleted.title}"`);
         return `✅ 已删除任务 #${id}: "${deleted.title}"`;
       } catch (error) {
         return `❌ 删除任务失败: ${error.message}`;
