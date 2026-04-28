@@ -21,6 +21,11 @@ const rl = readline.createInterface({
 // 提示词
 let message = [{ role: "system", content: `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl)开发你的，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)
     
+    规则：
+    1.拿不准的一定先问，别自己猜
+    2.代码能短就别拖长
+    3.没叫你动的地方你别动
+    4.给目标就行别给步骤
      
     ` }]
 
@@ -36,7 +41,7 @@ async function main() {
             return;
         }
         const spinner = createSpinner('正在调用 DeepSeek...');
-        const MAX_ITERATIONS = 40;   // 防止死循环
+        const MAX_ITERATIONS = 400;   // 防止死循环
 
         message.push({ role: 'user', 'content': content })
         let responseMessage;

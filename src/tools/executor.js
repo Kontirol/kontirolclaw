@@ -57,6 +57,9 @@ async function runCommand(command, shell = "powershell") {
   });
 }
 
+  let todos = [];           // 每个任务对象：{ id, title, completed, createdAt, due? }
+  let nextId = 1;
+
 export async function executeToolCall(toolName, args) {
   // 统一处理路径并安全检查
   const fullPath = path.resolve(WORK_DIR, args.filename || '');
@@ -70,7 +73,7 @@ export async function executeToolCall(toolName, args) {
   /**
      * todo部分
      */
-  let todos = [];           // 每个任务对象：{ id, title, completed, createdAt, due? }
+
   
   switch (toolName) {
     case 'read_file': {
@@ -132,7 +135,6 @@ export async function executeToolCall(toolName, args) {
       return await runCommand(command, shell);
     }
     case "todo_create": {
-      let nextId = 1;
       try {
         const todo = { id: nextId++, title: args.title, completed: false, createdAt: new Date().toISOString() }
         todos.push(todo)
@@ -161,7 +163,7 @@ export async function executeToolCall(toolName, args) {
     }
     case "todo_update": {
       try {
-        const index = todos.findIndex(t => t.id === id);
+        const index = todos.findIndex(t => t.id === args.id);
         if (index === -1) {
           return `❌ 未找到 ID 为 ${id} 的任务`;
         }
