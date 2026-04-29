@@ -14,12 +14,22 @@ const client = new OpenAI({
   apiKey: "",
 });
 
+// 启用 keypress 事件（用于 Esc 中断）
+readline.emitKeypressEvents(process.stdin);
+
 // 输入管理器
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
   prompt: "CTRL > "
 });
+
+// raw mode 控制
+function setRawMode(on) {
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(on);
+  }
+}
 
 // 基础系统提示词
 const BASE_SYSTEM_PROMPT = `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl)开发你的，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)
@@ -78,7 +88,16 @@ function autoRemember(userText) {
 
 // 统计轮次（用于触发自动总结）
 let turnCount = 0;
-const AUTO_SUMMARIZE_INTERVAL = 12; // 每 12 轮自动总结一次
+const AUTO_SUMMARIZE_INTERVAL = 12;
+
+// 中断控制
+let currentAbort = null;
+
+function onEscKey(str, key) {
+  if (key && key.name === 'escape' && currentAbort) {
+    currentAbort.abort();
+  }
+}
 
 // 主函数
 async function main() {
@@ -86,7 +105,7 @@ async function main() {
 
   console.log('🤖 Ctrl AI 助手已启动');
   console.log('  记忆系统：✅ 对话持久化 | ✅ 偏好学习 | ✅ 向量检索 | ✅ 自我优化');
-  console.log('  输入 "exit" 退出');
+  console.log('  按 Esc 可中断当前请求 | 输入 "exit" 退出');
   console.log('');
 
   rl.prompt();
@@ -105,17 +124,20 @@ async function main() {
       console.log('🧠', remembered);
     }
 
-    const spinner = createSpinner('正在调用 DeepSeek...');
+    const spinner = createSpinner('正在调用 DeepSeek... (Esc 中断)');
     const MAX_ITERATIONS = 400;
     turnCount++;
 
     message.push({ role: 'user', content });
     addMessage({ role: 'user', content });
 
+    const msgCountBefore = message.length;
+
     let responseMessage;
+    currentAbort = new AbortController();
+    process.stdin.on('keypress', onEscKey);
 
     try {
-      // 结合自定义工具
       const customTools = loadCustomTools();
       const allTools = [...toolDefinitions, ...customTools.map(t => ({
         type: "function",
@@ -131,7 +153,7 @@ async function main() {
         model: "deepseek-v4-pro",
         stream: false,
         tools: allTools
-      });
+      }, { signal: currentAbort.signal });
 
       responseMessage = completion.choices[0].message;
       message.push(responseMessage);
@@ -140,6 +162,10 @@ async function main() {
       // 工具调用循环
       let iteration = 0;
       while (responseMessage.tool_calls && responseMessage.tool_calls.length > 0 && iteration < MAX_ITERATIONS) {
+        if (currentAbort.signal.aborted) {
+          throw new Error("ABORTED_BY_USER");
+        }
+
         iteration++;
 
         for (const toolCall of responseMessage.tool_calls) {
@@ -162,12 +188,16 @@ async function main() {
           addMessage(toolMsg);
         }
 
+        if (currentAbort.signal.aborted) {
+          throw new Error("ABORTED_BY_USER");
+        }
+
         completion = await client.chat.completions.create({
           messages: message,
           model: "deepseek-v4-pro",
           stream: false,
           tools: allTools,
-        });
+        }, { signal: currentAbort.signal });
         responseMessage = completion.choices[0].message;
         message.push(responseMessage);
         addMessage(responseMessage);
@@ -180,17 +210,32 @@ async function main() {
       spinner.stop('✅ 完成');
       console.log(responseMessage.content || '(无文字回复)');
 
-      // 定期自动总结
       if (turnCount > 0 && turnCount % AUTO_SUMMARIZE_INTERVAL === 0) {
-        // 静默触发一次总结（不阻塞用户）
         triggerAutoSummary();
       }
 
       rl.prompt();
     } catch (error) {
-      spinner.stop('❌ 出错');
-      console.error(error);
-      rl.prompt();
+      if (error.message === "ABORTED_BY_USER" ||
+          error.name === "AbortError" ||
+          (error.name === "APIError" && error.status === undefined)) {
+        spinner.stop('⏹ 已中断');
+        console.log('⏹ 已中断 (Esc)，对话上下文已保留');
+
+        while (message.length > msgCountBefore) {
+          message.pop();
+        }
+        saveHistory();
+
+        rl.prompt();
+      } else {
+        spinner.stop('❌ 出错');
+        console.error(error);
+        rl.prompt();
+      }
+    } finally {
+      currentAbort = null;
+      process.stdin.off('keypress', onEscKey);
     }
   });
 
@@ -200,7 +245,6 @@ async function main() {
     process.exit(0);
   });
 
-  // Ctrl+C 也保存
   process.on('SIGINT', () => {
     saveHistory();
     console.log("\n再见!");
@@ -233,7 +277,7 @@ async function triggerAutoSummary() {
       console.log('\x1b[90m%s\x1b[0m', `  🧠 自动总结: ${summary}`);
     }
   } catch {
-    // 静默失败，不影响主流程
+    // 静默失败
   }
 }
 
