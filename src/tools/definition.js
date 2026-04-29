@@ -94,6 +94,7 @@ export const toolDefinitions = [
       }
     }
   },
+  // ===== TODO 工具 =====
   {
     type: "function",
     function: {
@@ -113,40 +114,245 @@ export const toolDefinitions = [
     function: {
       name: "todo_list",
       description: "列出当前所有的待办任务",
-      parameters: {   // 没有参数也可以，但可以用空对象
+      parameters: {
         type: "object",
         properties: {}
       }
     }
   },
   {
-  type: "function",
-  function: {
-    name: "todo_update",
-    description: "更新一个已存在的待办任务（可以改标题、完成状态、截止日期）",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "number", description: "要更新的任务ID" },
-        title: { type: "string", description: "新的标题（可选）" },
-        completed: { type: "boolean", description: "是否完成（可选）" },
-      },
-      required: ["id"]
+    type: "function",
+    function: {
+      name: "todo_update",
+      description: "更新一个已存在的待办任务（可以改标题、完成状态、截止日期）",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "要更新的任务ID" },
+          title: { type: "string", description: "新的标题（可选）" },
+          completed: { type: "boolean", description: "是否完成（可选）" },
+        },
+        required: ["id"]
+      }
     }
-  }
-},
-{
-  type: "function",
-  function: {
-    name: "todo_delete",
-    description: "删除一个待办任务",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "number", description: "要删除的任务ID" }
-      },
-      required: ["id"]
+  },
+  {
+    type: "function",
+    function: {
+      name: "todo_delete",
+      description: "删除一个待办任务",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "要删除的任务ID" }
+        },
+        required: ["id"]
+      }
     }
-  }
-}
+  },
+
+  // ===== 记忆系统工具（第一~三层） =====
+  {
+    type: "function",
+    function: {
+      name: "memory_store",
+      description: "存储一条长期记忆。当用户说「记住xxx」或你觉得某个信息值得记住时调用。",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "要记住的内容" },
+          tags: { type: "array", items: { type: "string" }, description: "标签（可选），如 ['项目', '偏好']" }
+        },
+        required: ["content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "memory_search",
+      description: "搜索长期记忆",
+      parameters: {
+        type: "object",
+        properties: {
+          keyword: { type: "string", description: "搜索关键词" }
+        },
+        required: ["keyword"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "memory_list",
+      description: "列出所有长期记忆",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "memory_delete",
+      description: "删除一条长期记忆",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "记忆ID" }
+        },
+        required: ["id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "preference_set",
+      description: "保存一个用户偏好（学到的习惯、喜好、常用设置等）",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "偏好名称" },
+          value: { type: "string", description: "偏好值" }
+        },
+        required: ["key", "value"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "preference_list",
+      description: "列出所有已学习的用户偏好",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "vector_store",
+      description: "将一段对话总结存入向量记忆库，供未来检索。当对话涉及重要知识、决策或模式时调用。",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: { type: "string", description: "对话摘要，简明扼要" },
+          keywords: { type: "array", items: { type: "string" }, description: "关键词列表" }
+        },
+        required: ["summary"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "vector_search",
+      description: "搜索向量记忆库，找到与当前查询相关的历史对话摘要",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "搜索查询" }
+        },
+        required: ["query"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "vector_list",
+      description: "列出所有向量记忆",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+
+  // ===== 自我优化工具（第四层） =====
+  {
+    type: "function",
+    function: {
+      name: "self_propose_tool",
+      description: "提出一个新的自定义工具（需要用户确认后才生效）。当你发现现有工具不够用，需要新能力时使用。",
+      parameters: {
+        type: "object",
+        properties: {
+          tool_name: { type: "string", description: "新工具名称" },
+          description: { type: "string", description: "工具功能描述" },
+          parameters: { type: "string", description: "工具参数的 JSON Schema（字符串格式）" }
+        },
+        required: ["tool_name", "description", "parameters"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "self_propose_prompt",
+      description: "提出修改系统提示词/规则的提案（需要用户确认后才生效）。当你发现规则不够好，想优化自己行为时使用。",
+      parameters: {
+        type: "object",
+        properties: {
+          snippet: { type: "string", description: "要添加/修改的提示词片段" },
+          reason: { type: "string", description: "修改理由" }
+        },
+        required: ["snippet", "reason"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "self_list_proposals",
+      description: "列出所有待处理的自我优化提案",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "self_approve",
+      description: "批准一个自我优化提案（仅用户手动调用）",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "提案ID" }
+        },
+        required: ["id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "self_reject",
+      description: "拒绝一个自我优化提案（仅用户手动调用）",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "提案ID" }
+        },
+        required: ["id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "history_clear",
+      description: "清空对话历史",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
 ];
