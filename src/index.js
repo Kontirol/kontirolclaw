@@ -8,6 +8,7 @@ import { getPreferencesContext, detectRememberCommand, addMemory } from "./memor
 import { getVectorContext, summarizeAndStore } from "./memory/vector.js";
 import { getFullSystemPrompt, loadCustomTools } from "./memory/self-improve.js";
 
+
 // 实例化 openAI
 const client = new OpenAI({
   baseURL: 'https://api.deepseek.com',
