@@ -3,10 +3,17 @@ import OpenAI from "openai";
 import readline from "readline";
 import { toolDefinitions } from "./tools/definition.js";
 import { executeToolCall } from "./tools/executor.js";
-import { loadHistory, saveHistory, addMessage, getRecentMessages } from "./memory/history.js";
 import { getPreferencesContext, detectRememberCommand, addMemory } from "./memory/preferences.js";
 import { getVectorContext, summarizeAndStore } from "./memory/vector.js";
 import { getFullSystemPrompt, loadCustomTools } from "./memory/self-improve.js";
+import {
+  listSessions,
+  createSession,
+  switchSession,
+  deleteSession,
+  loadCurrentSession,
+  saveCurrentSession,
+} from "./memory/sessions.js";
 
 
 // 实例化 openAI
@@ -59,12 +66,14 @@ function buildSystemPrompt() {
 // 消息列表
 let message = [];
 
-// 初始化：加载历史
+// 初始化：加载当前会话
 function initMessages() {
-  const historyMsgs = loadHistory();
-  if (historyMsgs.length > 0) {
-    // 只加载最近的对话（避免 token 爆炸）
-    message = historyMsgs.slice(-30);
+  const { session, messages } = loadCurrentSession();
+  if (session) {
+    console.log(`📂 当前会话: ${session.name} (#${session.id})`);
+  }
+  if (messages.length > 0) {
+    message = messages.slice(-30);
     // 确保 system prompt 在第一位且是最新的
     const sysIdx = message.findIndex(m => m.role === 'system');
     const newSys = { role: "system", content: buildSystemPrompt() };
@@ -100,12 +109,85 @@ function onEscKey(str, key) {
   }
 }
 
+// ===== 会话管理命令（以 : 开头） =====
+function handleSessionCommand(content) {
+  const parts = content.trim().split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const arg = parts.slice(1).join(' ');
+
+  switch (cmd) {
+    case ':sessions':
+    case ':list':
+      console.log('📋 所有会话：');
+      console.log(listSessions());
+      return true;
+
+    case ':new': {
+      const name = arg || null;
+      const { msg } = createSession(name);
+      console.log(msg);
+      message = [{ role: "system", content: buildSystemPrompt() }];
+      turnCount = 0;
+      return true;
+    }
+
+    case ':switch': {
+      if (!arg) {
+        console.log('用法：:switch <会话ID或名称>');
+        return true;
+      }
+      const result = switchSession(arg);
+      if (result.error) {
+        console.log(result.error);
+      } else {
+        console.log(result.msg);
+        // 加载目标会话的消息
+        const { messages } = loadCurrentSession();
+        message = messages.length > 0 ? messages.slice(-30) : [];
+        message.unshift({ role: "system", content: buildSystemPrompt() });
+        turnCount = 0;
+      }
+      return true;
+    }
+
+    case ':delete': {
+      if (!arg) {
+        console.log('用法：:delete <会话ID或名称>');
+        return true;
+      }
+      const result = deleteSession(arg);
+      console.log(result);
+      // 如果删的是当前会话，重新加载
+      const { messages } = loadCurrentSession();
+      message = messages.length > 0 ? messages.slice(-30) : [];
+      message.unshift({ role: "system", content: buildSystemPrompt() });
+      turnCount = 0;
+      return true;
+    }
+
+    case ':help':
+      console.log(`
+⌨️  Ctrl 命令：
+  :new [名称]    - 创建新会话
+  :switch <ID>   - 切换会话
+  :sessions      - 列出所有会话
+  :delete <ID>   - 删除会话
+  exit           - 退出
+  Esc            - 中断当前请求
+`);
+      return true;
+
+    default:
+      return false; // 不是会话命令，交给 AI 处理
+  }
+}
+
 // 主函数
 async function main() {
   initMessages();
 
   console.log('🤖 Ctrl AI 助手已启动');
-  console.log('  记忆系统：✅ 对话持久化 | ✅ 偏好学习 | ✅ 向量检索 | ✅ 自我优化');
+  console.log('  会话管理：:new | :switch | :sessions | :delete | :help');
   console.log('  按 Esc 可中断当前请求 | 输入 "exit" 退出');
   console.log('');
 
@@ -114,8 +196,15 @@ async function main() {
   rl.on('line', async (text) => {
     const content = text.trim();
     if (content == "exit") {
-      saveHistory();
+      saveCurrentSession(message);
       rl.close();
+      return;
+    }
+
+    // 处理会话管理命令（以 : 开头）
+    if (content.startsWith(':')) {
+      handleSessionCommand(content);
+      rl.prompt();
       return;
     }
 
@@ -130,7 +219,8 @@ async function main() {
     turnCount++;
 
     message.push({ role: 'user', content });
-    addMessage({ role: 'user', content });
+    // 实时保存
+    saveCurrentSession(message);
 
     const msgCountBefore = message.length;
 
@@ -158,7 +248,7 @@ async function main() {
 
       responseMessage = completion.choices[0].message;
       message.push(responseMessage);
-      addMessage(responseMessage);
+      saveCurrentSession(message);
 
       // 工具调用循环
       let iteration = 0;
@@ -186,7 +276,7 @@ async function main() {
             content: result
           };
           message.push(toolMsg);
-          addMessage(toolMsg);
+          saveCurrentSession(message);
         }
 
         if (currentAbort.signal.aborted) {
@@ -201,7 +291,7 @@ async function main() {
         }, { signal: currentAbort.signal });
         responseMessage = completion.choices[0].message;
         message.push(responseMessage);
-        addMessage(responseMessage);
+        saveCurrentSession(message);
       }
 
       if (iteration >= MAX_ITERATIONS) {
@@ -226,7 +316,7 @@ async function main() {
         while (message.length > msgCountBefore) {
           message.pop();
         }
-        saveHistory();
+        saveCurrentSession(message);
 
         rl.prompt();
       } else {
@@ -241,13 +331,13 @@ async function main() {
   });
 
   rl.on('close', () => {
-    saveHistory();
+    saveCurrentSession(message);
     console.log("再见!");
     process.exit(0);
   });
 
   process.on('SIGINT', () => {
-    saveHistory();
+    saveCurrentSession(message);
     console.log("\n再见!");
     process.exit(0);
   });

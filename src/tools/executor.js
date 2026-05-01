@@ -6,7 +6,7 @@ import { addMemory, searchMemory, listMemory, deleteMemory, loadMemory } from ".
 import { setPreference, listPreferences } from "../memory/preferences.js";
 import { addVector, searchVectors, listVectors, deleteVector } from "../memory/vector.js";
 import { proposeNewTool, proposePromptUpdate, listPendingChanges, approveProposal, rejectProposal } from "../memory/self-improve.js";
-import { clearHistory } from "../memory/history.js";
+import { saveCurrentSession } from "../memory/sessions.js";
 
 const WORK_DIR = process.cwd();
 
@@ -231,7 +231,9 @@ export async function executeToolCall(toolName, args) {
       return rejectProposal(args.id);
     }
     case 'history_clear': {
-      return clearHistory();
+      // 清空当前会话的消息
+      saveCurrentSession([]);
+      return '当前会话历史已清空';
     }
 
     default:
