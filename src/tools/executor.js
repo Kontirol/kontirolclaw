@@ -62,6 +62,14 @@ async function runCommand(command, shell = "powershell") {
 let todos = [];
 let nextId = 1;
 
+// status 映射到图标
+const STATUS_ICONS = {
+  pending: '⬜',
+  in_progress: '🔄',
+  done: '✅',
+  failed: '❌'
+};
+
 export async function executeToolCall(toolName, args) {
   // 路径类工具安全检查
   const fullPath = args.filename ? path.resolve(WORK_DIR, args.filename) : WORK_DIR;
@@ -125,25 +133,61 @@ export async function executeToolCall(toolName, args) {
       return await runCommand(command, shell);
     }
 
-    // ===== TODO 工具 =====
+    // ===== TODO 工具（支持 status 字段） =====
     case 'todo_create': {
       try {
-        const todo = { id: nextId++, title: args.title, completed: false, createdAt: new Date().toISOString() };
+        const status = args.status || 'pending';
+        const todo = {
+          id: nextId++,
+          title: args.title,
+          status,
+          completed: status === 'done',
+          createdAt: new Date().toISOString()
+        };
         todos.push(todo);
-        console.log('\x1b[34m%s\x1b[0m', `创建 todo ID:${todo.id}, title: ${args.title}`);
-        return `创建 todo ID:${todo.id}, title: ${args.title} 完成`;
+        console.log('\x1b[34m%s\x1b[0m', `创建 todo #${todo.id} [${status}] ${args.title}`);
+        return `创建 todo #${todo.id} [${STATUS_ICONS[status]}] ${args.title}`;
       } catch (error) {
         return `创建 todo 失败: ${error.message}`;
       }
     }
     case 'todo_list': {
       try {
-        if (todos.length === 0) return "暂无待办任务";
-        let result = "📋 待办列表：\n";
-        for (const t of todos) {
-          const status = t.completed ? '✅' : '⬜';
-          result += `${t.id}. [${status}] ${t.title}\n`;
+        const filterStatus = args.status;
+        let filtered = filterStatus
+          ? todos.filter(t => t.status === filterStatus)
+          : todos;
+
+        if (filtered.length === 0) {
+          return filterStatus
+            ? `暂无状态为 "${filterStatus}" 的任务`
+            : '暂无待办任务';
         }
+
+        // 按状态分组
+        const order = ['in_progress', 'pending', 'failed', 'done'];
+        filtered.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+
+        let result = '📋 待办列表：\n';
+        for (const t of filtered) {
+          result += `  #${t.id} [${STATUS_ICONS[t.status]} ${t.status}] ${t.title}\n`;
+        }
+
+        // 统计
+        const counts = {};
+        for (const t of todos) {
+          counts[t.status] = (counts[t.status] || 0) + 1;
+        }
+        if (!filterStatus) {
+          result += `\n📊 统计: `;
+          const parts = [];
+          for (const [s, n] of Object.entries(counts)) {
+            parts.push(`${STATUS_ICONS[s]} ${s}: ${n}`);
+          }
+          result += parts.join(' | ');
+          result += ` | 总计: ${todos.length}`;
+        }
+
         console.log('\x1b[34m%s\x1b[0m', result);
         return result;
       } catch (error) {
@@ -154,10 +198,24 @@ export async function executeToolCall(toolName, args) {
       try {
         const idx = todos.findIndex(t => t.id === args.id);
         if (idx === -1) return `❌ 未找到 ID 为 ${args.id} 的任务`;
+
+        const old = todos[idx];
         if (args.title !== undefined) todos[idx].title = args.title;
-        if (typeof args.completed === "boolean") todos[idx].completed = args.completed;
-        console.log('\x1b[34m%s\x1b[0m', `任务 #${args.id} 已更新`);
-        return `任务 #${args.id} 已更新`;
+        if (args.status !== undefined) {
+          todos[idx].status = args.status;
+          todos[idx].completed = (args.status === 'done');
+        }
+        if (typeof args.completed === 'boolean') {
+          // 兼容旧逻辑：completed=true → done, completed=false → pending
+          todos[idx].completed = args.completed;
+          if (args.status === undefined) {
+            todos[idx].status = args.completed ? 'done' : 'pending';
+          }
+        }
+
+        const icon = STATUS_ICONS[todos[idx].status];
+        console.log('\x1b[34m%s\x1b[0m', `任务 #${args.id} [${old.status}]→[${todos[idx].status}] ${todos[idx].title}`);
+        return `任务 #${args.id} 已更新 [${icon}] ${todos[idx].title}`;
       } catch (error) {
         return `更新任务失败: ${error.message}`;
       }

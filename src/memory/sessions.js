@@ -29,6 +29,24 @@ function sessionPath(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
 
+// 清理孤立的 tool 消息（没有前置 assistant(tool_calls) 的）
+function cleanOrphanedToolMessages(msgs) {
+  const toolCallIds = new Set();
+  for (const m of msgs) {
+    if (m.role === 'assistant' && m.tool_calls) {
+      for (const tc of m.tool_calls) {
+        toolCallIds.add(tc.id);
+      }
+    }
+  }
+  return msgs.filter(m => {
+    if (m.role === 'tool') {
+      return toolCallIds.has(m.tool_call_id);
+    }
+    return true;
+  });
+}
+
 // 迁移旧的单文件历史到会话系统
 function migrateOldHistory() {
   const oldFile = path.join(CTRL_DIR, 'history.json');
@@ -175,8 +193,12 @@ export function saveCurrentSession(messages, maxMessages = 200) {
   const meta = loadMeta();
   if (!meta.currentId) return;
 
-  // 裁剪
-  const trimmed = messages.length > maxMessages ? messages.slice(-maxMessages) : messages;
+  // 裁剪并清理孤立 tool 消息
+  let trimmed = messages;
+  if (messages.length > maxMessages) {
+    trimmed = messages.slice(-maxMessages);
+    trimmed = cleanOrphanedToolMessages(trimmed);
+  }
 
   const file = sessionPath(meta.currentId);
   const session = meta.sessions.find(s => s.id === meta.currentId);

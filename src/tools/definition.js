@@ -99,11 +99,16 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "todo_create",
-      description: "添加一个新的待办任务",
+      description: "添加一个新的待办任务（支持 status 字段追踪工作流阶段）",
       parameters: {
         type: "object",
         properties: {
           title: { type: "string", description: "任务标题" },
+          status: {
+            type: "string",
+            enum: ["pending", "in_progress", "done", "failed"],
+            description: "任务状态。pending=待执行, in_progress=正在执行, done=已完成, failed=失败需重试。默认 pending。"
+          }
         },
         required: ["title"]
       }
@@ -113,10 +118,16 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "todo_list",
-      description: "列出当前所有的待办任务",
+      description: "列出当前所有的待办任务，按状态分组显示",
       parameters: {
         type: "object",
-        properties: {}
+        properties: {
+          status: {
+            type: "string",
+            enum: ["pending", "in_progress", "done", "failed"],
+            description: "可选，按状态筛选。不填则显示全部。"
+          }
+        }
       }
     }
   },
@@ -124,13 +135,18 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "todo_update",
-      description: "更新一个已存在的待办任务（可以改标题、完成状态、截止日期）",
+      description: "更新一个已存在的待办任务（改标题、状态、完成标记等）",
       parameters: {
         type: "object",
         properties: {
           id: { type: "number", description: "要更新的任务ID" },
           title: { type: "string", description: "新的标题（可选）" },
-          completed: { type: "boolean", description: "是否完成（可选）" },
+          status: {
+            type: "string",
+            enum: ["pending", "in_progress", "done", "failed"],
+            description: "新状态（可选）。执行前改为 in_progress，完成后改为 done，失败改为 failed。"
+          },
+          completed: { type: "boolean", description: "是否完成（可选，与 status 字段配合使用）" }
         },
         required: ["id"]
       }
