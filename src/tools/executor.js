@@ -1,7 +1,8 @@
 // tools/executor.js
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { exec } from "node:child_process";
+import * as os from 'node:os';
+import { spawn } from "node:child_process";
 import { addMemory, searchMemory, listMemory, deleteMemory, loadMemory } from "../memory/preferences.js";
 import { setPreference, listPreferences } from "../memory/preferences.js";
 import { addVector, searchVectors, listVectors, deleteVector } from "../memory/vector.js";
@@ -9,6 +10,8 @@ import { proposeNewTool, proposePromptUpdate, listPendingChanges, approveProposa
 import { saveCurrentSession } from "../memory/sessions.js";
 
 const WORK_DIR = process.cwd();
+const CTRL_DIR = path.join(os.homedir(), '.ctrl');
+const TODO_FILE = path.join(CTRL_DIR, 'todos.json');
 
 // 危险命令黑名单
 const FORBIDDEN_PATTERNS = [
@@ -26,43 +29,90 @@ function isCommandSafe(command) {
   return !FORBIDDEN_PATTERNS.some(pattern => pattern.test(lower));
 }
 
-async function runCommand(command, shell = "powershell") {
+async function runCommand(command, shell = "powershell", timeoutMs = 60000) {
   return new Promise((resolve) => {
-    const shellPath = shell === "cmd" ? "cmd.exe" : "powershell.exe";
-    const shellFlag = shell === "cmd" ? "/c" : "-Command";
+    const isPowerShell = shell !== 'cmd';
+    const shellPath = isPowerShell ? 'powershell.exe' : 'cmd.exe';
+    const args = isPowerShell
+      ? ['-NoProfile', '-NonInteractive', '-Command', command]
+      : ['/c', command];
 
-    const child = exec(
-      `${shellPath} ${shellFlag} "${command.replace(/"/g, '\\"')}"`,
-      {
-        cwd: WORK_DIR,
-        timeout: 30000,
-        maxBuffer: 1024 * 500,
-        windowsHide: true
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          if (error.killed) {
-            resolve(`❌ 命令执行超时（30秒）`);
-          } else {
-            resolve(`❌ 命令执行失败：${error.message}\n${stderr}`);
-          }
-        } else {
-          resolve(stdout || stderr || "命令执行成功，无输出");
-        }
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+
+    const child = spawn(shellPath, args, {
+      cwd: WORK_DIR,
+      windowsHide: true,
+    });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+
+      if (timedOut) {
+        resolve(
+          `❌ 命令执行超时（${timeoutMs / 1000}秒）\n` +
+          (stdout ? `已输出的内容（末 2000 字符）：\n${stdout.slice(-2000)}\n` : '')
+        );
+        return;
       }
-    );
 
-    setTimeout(() => {
-      if (!child.killed) child.kill();
-    }, 30000);
+      let result = '';
+      if (stdout) result += stdout;
+
+      if (code !== 0) {
+        const errorInfo = `⚠️ 命令退出码: ${code}`;
+        result += result ? `\n${errorInfo}` : errorInfo;
+        if (stderr) result += `\n--- stderr ---\n${stderr}`;
+      } else if (!stdout && stderr) {
+        result = stderr;
+      }
+
+      if (!result) result = '命令执行成功，无输出';
+      resolve(result);
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve(`❌ 命令启动失败：${err.message}`);
+    });
   });
 }
 
-// TODO 本地状态
-let todos = [];
-let nextId = 1;
+// ===== Todo 持久化 =====
+function ensureCtrlDir() {
+  if (!fs.existsSync(CTRL_DIR)) fs.mkdirSync(CTRL_DIR, { recursive: true });
+}
 
-// status 映射到图标
+function loadTodos() {
+  ensureCtrlDir();
+  try {
+    if (fs.existsSync(TODO_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TODO_FILE, 'utf-8'));
+      return { todos: data.todos || [], nextId: data.nextId || 1 };
+    }
+  } catch { /* ignore */ }
+  return { todos: [], nextId: 1 };
+}
+
+function saveTodos(todos, nextId) {
+  ensureCtrlDir();
+  fs.writeFileSync(TODO_FILE, JSON.stringify({ todos, nextId }, null, 2), 'utf-8');
+}
+
 const STATUS_ICONS = {
   pending: '⬜',
   in_progress: '🔄',
@@ -71,7 +121,6 @@ const STATUS_ICONS = {
 };
 
 export async function executeToolCall(toolName, args) {
-  // 路径类工具安全检查
   const fullPath = args.filename ? path.resolve(WORK_DIR, args.filename) : WORK_DIR;
   if (args.filename && !fullPath.startsWith(WORK_DIR)) {
     return `❌ 安全限制：不能操作当前目录以外的路径`;
@@ -81,7 +130,6 @@ export async function executeToolCall(toolName, args) {
     // ===== 文件操作 =====
     case 'read_file': {
       try {
-        console.log('\x1b[34m%s\x1b[0m', `正在读取 ${fullPath}`);
         return fs.readFileSync(fullPath, 'utf-8');
       } catch (err) {
         return `读取文件失败：${err.message}`;
@@ -89,7 +137,6 @@ export async function executeToolCall(toolName, args) {
     }
     case 'create_file': {
       try {
-        console.log('\x1b[34m%s\x1b[0m', `正在创建 ${fullPath}`);
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
         return `文件 ${args.filename} 创建/更新成功`;
       } catch (err) {
@@ -98,7 +145,6 @@ export async function executeToolCall(toolName, args) {
     }
     case 'delete_file': {
       try {
-        console.log('\x1b[31m%s\x1b[0m', `删除了 ${fullPath}`);
         fs.unlinkSync(fullPath);
         return `文件 ${args.filename} 已删除`;
       } catch (err) {
@@ -107,7 +153,6 @@ export async function executeToolCall(toolName, args) {
     }
     case 'edit_file': {
       try {
-        console.log('\x1b[34m%s\x1b[0m', `修改 ${fullPath}`);
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
         return `文件 ${args.filename} 已修改`;
       } catch (err) {
@@ -118,7 +163,6 @@ export async function executeToolCall(toolName, args) {
       try {
         const dir = args.dirname ? path.resolve(WORK_DIR, args.dirname) : WORK_DIR;
         const files = fs.readdirSync(dir);
-        console.log('\x1b[34m%s\x1b[0m', `查看目录: ${dir}`);
         return JSON.stringify(files);
       } catch (err) {
         return `读取目录失败：${err.message}`;
@@ -127,25 +171,28 @@ export async function executeToolCall(toolName, args) {
     case 'exec_command': {
       const command = args.command;
       if (!command) return "❌ 没有提供要执行的命令";
-      if (!isCommandSafe(command)) return "❌ 安全限制：该命令被禁止执行";
+      if (!isCommandSafe(command)) {
+        return "❌ 安全限制：该命令被禁止执行";
+      }
       const shell = args.shell || "powershell";
-      console.log('\x1b[32m%s\x1b[0m', `执行命令: ${command}`);
-      return await runCommand(command, shell);
+      const timeout = Math.min(args.timeout || 60, 300) * 1000;
+      return await runCommand(command, shell, timeout);
     }
 
-    // ===== TODO 工具（支持 status 字段） =====
+    // ===== TODO 工具（文件持久化） =====
     case 'todo_create': {
       try {
+        const { todos, nextId } = loadTodos();
         const status = args.status || 'pending';
         const todo = {
-          id: nextId++,
+          id: nextId,
           title: args.title,
           status,
           completed: status === 'done',
           createdAt: new Date().toISOString()
         };
         todos.push(todo);
-        console.log('\x1b[34m%s\x1b[0m', `创建 todo #${todo.id} [${status}] ${args.title}`);
+        saveTodos(todos, nextId + 1);
         return `创建 todo #${todo.id} [${STATUS_ICONS[status]}] ${args.title}`;
       } catch (error) {
         return `创建 todo 失败: ${error.message}`;
@@ -153,6 +200,7 @@ export async function executeToolCall(toolName, args) {
     }
     case 'todo_list': {
       try {
+        const { todos } = loadTodos();
         const filterStatus = args.status;
         let filtered = filterStatus
           ? todos.filter(t => t.status === filterStatus)
@@ -164,7 +212,6 @@ export async function executeToolCall(toolName, args) {
             : '暂无待办任务';
         }
 
-        // 按状态分组
         const order = ['in_progress', 'pending', 'failed', 'done'];
         filtered.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
 
@@ -173,7 +220,6 @@ export async function executeToolCall(toolName, args) {
           result += `  #${t.id} [${STATUS_ICONS[t.status]} ${t.status}] ${t.title}\n`;
         }
 
-        // 统计
         const counts = {};
         for (const t of todos) {
           counts[t.status] = (counts[t.status] || 0) + 1;
@@ -188,7 +234,6 @@ export async function executeToolCall(toolName, args) {
           result += ` | 总计: ${todos.length}`;
         }
 
-        console.log('\x1b[34m%s\x1b[0m', result);
         return result;
       } catch (error) {
         return `失败: ${error.message}`;
@@ -196,6 +241,7 @@ export async function executeToolCall(toolName, args) {
     }
     case 'todo_update': {
       try {
+        const { todos, nextId } = loadTodos();
         const idx = todos.findIndex(t => t.id === args.id);
         if (idx === -1) return `❌ 未找到 ID 为 ${args.id} 的任务`;
 
@@ -206,15 +252,14 @@ export async function executeToolCall(toolName, args) {
           todos[idx].completed = (args.status === 'done');
         }
         if (typeof args.completed === 'boolean') {
-          // 兼容旧逻辑：completed=true → done, completed=false → pending
           todos[idx].completed = args.completed;
           if (args.status === undefined) {
             todos[idx].status = args.completed ? 'done' : 'pending';
           }
         }
+        saveTodos(todos, nextId);
 
         const icon = STATUS_ICONS[todos[idx].status];
-        console.log('\x1b[34m%s\x1b[0m', `任务 #${args.id} [${old.status}]→[${todos[idx].status}] ${todos[idx].title}`);
         return `任务 #${args.id} 已更新 [${icon}] ${todos[idx].title}`;
       } catch (error) {
         return `更新任务失败: ${error.message}`;
@@ -222,10 +267,11 @@ export async function executeToolCall(toolName, args) {
     }
     case 'todo_delete': {
       try {
+        const { todos, nextId } = loadTodos();
         const idx = todos.findIndex(t => t.id === args.id);
         if (idx === -1) return `❌ 未找到 ID 为 ${args.id} 的任务`;
         const deleted = todos.splice(idx, 1)[0];
-        console.log('\x1b[34m%s\x1b[0m', `✅ 已删除任务 #${args.id}: "${deleted.title}"`);
+        saveTodos(todos, nextId);
         return `✅ 已删除任务 #${args.id}: "${deleted.title}"`;
       } catch (error) {
         return `❌ 删除任务失败: ${error.message}`;
@@ -289,7 +335,6 @@ export async function executeToolCall(toolName, args) {
       return rejectProposal(args.id);
     }
     case 'history_clear': {
-      // 清空当前会话的消息
       saveCurrentSession([]);
       return '当前会话历史已清空';
     }

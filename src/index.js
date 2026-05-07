@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import OpenAI from "openai";
 import readline from "readline";
+import chalk from "chalk";
+import { config } from "./config.js";
 import { toolDefinitions } from "./tools/definition.js";
 import { executeToolCall } from "./tools/executor.js";
 import { getPreferencesContext, detectRememberCommand, addMemory } from "./memory/preferences.js";
@@ -14,34 +16,37 @@ import {
   loadCurrentSession,
   saveCurrentSession,
 } from "./memory/sessions.js";
+import { Spinner } from "./ui/spinner.js";
+import { printBanner, printToolCall, printToolResult, printSessionBanner } from "./ui/banner.js";
 
+if (!config.apiKey) {
+  console.error(chalk.red('❌ 未配置 API Key。请设置环境变量 CTRL_API_KEY 或写入 ~/.ctrl/config.json'));
+  console.error(chalk.dim('   示例: set CTRL_API_KEY=sk-xxx  (Windows)'));
+  console.error(chalk.dim('   或:  在 ~/.ctrl/config.json 中写入 {"apiKey":"sk-xxx"}'));
+  process.exit(1);
+}
 
-// 实例化 openAI
 const client = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey: "",
+  baseURL: config.baseURL,
+  apiKey: config.apiKey,
 });
 
-// 启用 keypress 事件（用于 Esc 中断）
 readline.emitKeypressEvents(process.stdin);
 
-// 输入管理器
+const spinner = new Spinner();
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
-  prompt: "CTRL > "
+  prompt: chalk.hex('#FFB347')('Ctrl > ')
 });
 
-// raw mode 控制
 function setRawMode(on) {
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(on);
-  }
+  if (process.stdin.isTTY) process.stdin.setRawMode(on);
 }
 
-// 基础系统提示词
 const BASE_SYSTEM_PROMPT = `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl)开发你的，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)
-    
+
 规则：
 1.拿不准的一定先问，别自己猜
 2.代码能短就别拖长
@@ -56,25 +61,21 @@ const BASE_SYSTEM_PROMPT = `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl
 - 当你发现需要新的工具能力时，使用 self_propose_tool 提出
 `;
 
-// 构建完整系统提示词（含自定义和偏好）
 function buildSystemPrompt() {
   let prompt = getFullSystemPrompt(BASE_SYSTEM_PROMPT);
   prompt += getPreferencesContext();
   return prompt;
 }
 
-// 消息列表
 let message = [];
 
-// 初始化：加载当前会话
 function initMessages() {
   const { session, messages } = loadCurrentSession();
   if (session) {
-    console.log(`📂 当前会话: ${session.name} (#${session.id})`);
+    printSessionBanner(session);
   }
   if (messages.length > 0) {
-    message = messages.slice(-30);
-    // 确保 system prompt 在第一位且是最新的
+    message = messages;
     const sysIdx = message.findIndex(m => m.role === 'system');
     const newSys = { role: "system", content: buildSystemPrompt() };
     if (sysIdx >= 0) {
@@ -87,20 +88,14 @@ function initMessages() {
   }
 }
 
-// 自动记住用户指令
 function autoRemember(userText) {
   const content = detectRememberCommand(userText);
-  if (content) {
-    return addMemory(content);
-  }
+  if (content) return addMemory(content);
   return null;
 }
 
-// 统计轮次（用于触发自动总结）
 let turnCount = 0;
 const AUTO_SUMMARIZE_INTERVAL = 12;
-
-// 中断控制
 let currentAbort = null;
 
 function onEscKey(str, key) {
@@ -109,7 +104,86 @@ function onEscKey(str, key) {
   }
 }
 
-// ===== 会话管理命令（以 : 开头） =====
+// ===== 流式请求，返回完整的 assistant message =====
+async function streamCompletion(messages, tools, signal) {
+  spinner.start(chalk.dim('⏳ 思考中…'));
+
+  const stream = await client.chat.completions.create({
+    messages,
+    model: config.model,
+    stream: true,
+    tools,
+  }, { signal });
+
+  const toolCalls = {};  // keyed by index
+  let textContent = '';
+  let reasoningContent = '';
+  let finishReason = '';
+  let hasStartedContent = false;
+
+  for await (const chunk of stream) {
+    if (signal?.aborted) break;
+
+    const delta = chunk.choices?.[0]?.delta;
+    finishReason = chunk.choices?.[0]?.finish_reason || finishReason;
+
+    // DeepSeek thinking mode: 必须捕获并回传 reasoning_content
+    if (delta?.reasoning_content) {
+      reasoningContent += delta.reasoning_content;
+    }
+
+    // 文本内容
+    if (delta?.content) {
+      if (!hasStartedContent) {
+        spinner.stop();
+        hasStartedContent = true;
+      }
+      textContent += delta.content;
+      process.stdout.write(delta.content);
+    }
+
+    // tool_calls delta 累积
+    if (delta?.tool_calls) {
+      if (!hasStartedContent) {
+        spinner.stop();
+        hasStartedContent = true;
+      }
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index;
+        if (!toolCalls[idx]) {
+          toolCalls[idx] = {
+            id: tc.id || '',
+            type: 'function',
+            function: { name: '', arguments: '' }
+          };
+        }
+        if (tc.id) toolCalls[idx].id = tc.id;
+        if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+        if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+      }
+    }
+  }
+
+  spinner.stop();
+
+  // 构造 assistant message
+  const msg = { role: 'assistant' };
+  if (reasoningContent) {
+    msg.reasoning_content = reasoningContent;
+  }
+  const tcList = Object.values(toolCalls);
+  if (tcList.length > 0) {
+    msg.tool_calls = tcList;
+    msg.content = null;
+  } else {
+    msg.content = textContent || null;
+    if (textContent) process.stdout.write('\n');
+  }
+
+  return msg;
+}
+
+// ===== 会话管理命令 =====
 function handleSessionCommand(content) {
   const parts = content.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -118,14 +192,14 @@ function handleSessionCommand(content) {
   switch (cmd) {
     case ':sessions':
     case ':list':
-      console.log('📋 所有会话：');
+      console.log(chalk.blue('📋 所有会话：'));
       console.log(listSessions());
       return true;
 
     case ':new': {
       const name = arg || null;
       const { msg } = createSession(name);
-      console.log(msg);
+      console.log(chalk.green(msg));
       message = [{ role: "system", content: buildSystemPrompt() }];
       turnCount = 0;
       return true;
@@ -133,17 +207,16 @@ function handleSessionCommand(content) {
 
     case ':switch': {
       if (!arg) {
-        console.log('用法：:switch <会话ID或名称>');
+        console.log(chalk.yellow('用法：:switch <会话ID或名称>'));
         return true;
       }
       const result = switchSession(arg);
       if (result.error) {
-        console.log(result.error);
+        console.log(chalk.red(result.error));
       } else {
-        console.log(result.msg);
-        // 加载目标会话的消息
+        console.log(chalk.green(result.msg));
         const { messages } = loadCurrentSession();
-        message = messages.length > 0 ? messages.slice(-30) : [];
+        message = messages.length > 0 ? messages : [];
         message.unshift({ role: "system", content: buildSystemPrompt() });
         turnCount = 0;
       }
@@ -152,21 +225,20 @@ function handleSessionCommand(content) {
 
     case ':delete': {
       if (!arg) {
-        console.log('用法：:delete <会话ID或名称>');
+        console.log(chalk.yellow('用法：:delete <会话ID或名称>'));
         return true;
       }
       const result = deleteSession(arg);
-      console.log(result);
-      // 如果删的是当前会话，重新加载
+      console.log(result.includes('✅') ? chalk.green(result) : chalk.red(result));
       const { messages } = loadCurrentSession();
-      message = messages.length > 0 ? messages.slice(-30) : [];
+      message = messages.length > 0 ? messages : [];
       message.unshift({ role: "system", content: buildSystemPrompt() });
       turnCount = 0;
       return true;
     }
 
     case ':help':
-      console.log(`
+      console.log(chalk.blue(`
 ⌨️  Ctrl 命令：
   :new [名称]    - 创建新会话
   :switch <ID>   - 切换会话
@@ -174,22 +246,19 @@ function handleSessionCommand(content) {
   :delete <ID>   - 删除会话
   exit           - 退出
   Esc            - 中断当前请求
-`);
+`));
       return true;
 
     default:
-      return false; // 不是会话命令，交给 AI 处理
+      return false;
   }
 }
 
-// 主函数
+// ===== 主函数 =====
 async function main() {
   initMessages();
 
-  console.log('🤖 Ctrl AI 助手已启动');
-  console.log('  会话管理：:new | :switch | :sessions | :delete | :help');
-  console.log('  按 Esc 可中断当前请求 | 输入 "exit" 退出');
-  console.log('');
+  printBanner(config);
 
   rl.prompt();
 
@@ -197,33 +266,27 @@ async function main() {
     const content = text.trim();
     if (content == "exit") {
       saveCurrentSession(message);
+      console.log(chalk.dim('   再见'));
       rl.close();
       return;
     }
 
-    // 处理会话管理命令（以 : 开头）
     if (content.startsWith(':')) {
       handleSessionCommand(content);
       rl.prompt();
       return;
     }
 
-    // 自动检测"记住xxx"
     const remembered = autoRemember(content);
-    if (remembered) {
-      console.log('🧠', remembered);
-    }
+    if (remembered) console.log(chalk.magenta('🧠'), remembered);
 
-    const spinner = createSpinner('正在调用 DeepSeek... (Esc 中断)');
     const MAX_ITERATIONS = 400;
     turnCount++;
 
     message.push({ role: 'user', content });
-    // 实时保存
     saveCurrentSession(message);
 
     const msgCountBefore = message.length;
-
     let responseMessage;
     currentAbort = new AbortController();
     process.stdin.on('keypress', onEscKey);
@@ -239,23 +302,14 @@ async function main() {
         }
       }))];
 
-      let completion = await client.chat.completions.create({
-        messages: message,
-        model: "deepseek-v4-pro",
-        stream: false,
-        tools: allTools
-      }, { signal: currentAbort.signal });
-
-      responseMessage = completion.choices[0].message;
+      // 首轮：流式请求
+      responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
       message.push(responseMessage);
       saveCurrentSession(message);
 
-      // 工具调用循环
       let iteration = 0;
       while (responseMessage.tool_calls && responseMessage.tool_calls.length > 0 && iteration < MAX_ITERATIONS) {
-        if (currentAbort.signal.aborted) {
-          throw new Error("ABORTED_BY_USER");
-        }
+        if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
 
         iteration++;
 
@@ -263,43 +317,35 @@ async function main() {
           const toolName = toolCall.function.name;
           let toolArgs;
           let result;
+          const toolStart = Date.now();
           try {
             toolArgs = JSON.parse(toolCall.function.arguments);
+            printToolCall(toolName, toolArgs);
             result = await executeToolCall(toolName, toolArgs);
+            printToolResult(toolName, Date.now() - toolStart);
           } catch (error) {
             result = `错误：调用工具 ${toolName} 失败。\n原因：${error.message}\n收到的参数原始字符串：${toolCall.function.arguments}\n请检查参数格式是否正确（必须是严格 JSON，键和字符串值使用双引号）。`;
           }
 
-          const toolMsg = {
+          message.push({
             role: "tool",
             tool_call_id: toolCall.id,
             content: result
-          };
-          message.push(toolMsg);
+          });
           saveCurrentSession(message);
         }
 
-        if (currentAbort.signal.aborted) {
-          throw new Error("ABORTED_BY_USER");
-        }
+        if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
 
-        completion = await client.chat.completions.create({
-          messages: message,
-          model: "deepseek-v4-pro",
-          stream: false,
-          tools: allTools,
-        }, { signal: currentAbort.signal });
-        responseMessage = completion.choices[0].message;
+        // 工具执行后的请求也用流式
+        responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
         message.push(responseMessage);
         saveCurrentSession(message);
       }
 
       if (iteration >= MAX_ITERATIONS) {
-        console.warn('⚠️ 达到最大工具调用次数，强制结束。');
+        console.log(chalk.yellow('\n  ⚠️ 达到最大工具调用次数，强制结束。'));
       }
-
-      spinner.stop('✅ 完成');
-      console.log(responseMessage.content || '(无文字回复)');
 
       if (turnCount > 0 && turnCount % AUTO_SUMMARIZE_INTERVAL === 0) {
         triggerAutoSummary();
@@ -307,11 +353,11 @@ async function main() {
 
       rl.prompt();
     } catch (error) {
+      spinner.stop();
       if (error.message === "ABORTED_BY_USER" ||
           error.name === "AbortError" ||
           (error.name === "APIError" && error.status === undefined)) {
-        spinner.stop('⏹ 已中断');
-        console.log('⏹ 已中断 (Esc)，对话上下文已保留');
+        console.log(chalk.yellow('\n  ⏹ 已中断 (Esc)，对话上下文已保留'));
 
         while (message.length > msgCountBefore) {
           message.pop();
@@ -320,11 +366,11 @@ async function main() {
 
         rl.prompt();
       } else {
-        spinner.stop('❌ 出错');
-        console.error(error);
+        console.error(chalk.red('\n  ❌ 出错:'), error.message);
         rl.prompt();
       }
     } finally {
+      spinner.stop();
       currentAbort = null;
       process.stdin.off('keypress', onEscKey);
     }
@@ -332,18 +378,17 @@ async function main() {
 
   rl.on('close', () => {
     saveCurrentSession(message);
-    console.log("再见!");
+    console.log(chalk.dim('   再见'));
     process.exit(0);
   });
 
-  process.on('SIGINT', () => {
-    saveCurrentSession(message);
-    console.log("\n再见!");
+process.on('SIGINT', () => {
+  saveCurrentSession(message);
+  console.log(chalk.dim('\n   再见'));
     process.exit(0);
   });
 }
 
-// 后台自动总结
 async function triggerAutoSummary() {
   try {
     const recentMsgs = message.slice(-20);
@@ -357,7 +402,7 @@ async function triggerAutoSummary() {
         { role: "system", content: "用一句话（不超过50字）总结以下对话的关键信息和用户偏好。只输出总结文本。" },
         { role: "user", content: convText }
       ],
-      model: "deepseek-v4-pro",
+      model: config.model,
       stream: false,
       max_tokens: 100
     });
@@ -365,7 +410,7 @@ async function triggerAutoSummary() {
     const summary = summaryCompletion.choices[0].message.content?.trim();
     if (summary) {
       summarizeAndStore(summary);
-      console.log('\x1b[90m%s\x1b[0m', `  🧠 自动总结: ${summary}`);
+      console.log(chalk.gray(`  🧠 自动总结: ${summary}`));
     }
   } catch {
     // 静默失败
@@ -373,19 +418,3 @@ async function triggerAutoSummary() {
 }
 
 main();
-
-// ===== 动画部分 =====
-function createSpinner(text = '思考中') {
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  let i = 0;
-  const interval = setInterval(() => {
-    process.stdout.write(`\r${frames[i++ % frames.length]} ${text}`);
-  }, 80);
-
-  return {
-    stop: (finalText = '') => {
-      clearInterval(interval);
-      process.stdout.write(`\r${finalText}${' '.repeat(20)}\n`);
-    }
-  };
-}

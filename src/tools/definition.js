@@ -76,7 +76,7 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "exec_command",
-      description: "在当前工作目录下执行一条 PowerShell 或 cmd 命令。命令执行超时时间为 30 秒。",
+      description: "在当前工作目录下执行一条 PowerShell 或 cmd 命令。默认超时 60 秒，最长 300 秒。",
       parameters: {
         type: "object",
         properties: {
@@ -88,6 +88,10 @@ export const toolDefinitions = [
             type: "string",
             enum: ["cmd", "powershell"],
             description: "使用的 shell 类型，默认为 powershell"
+          },
+          timeout: {
+            type: "number",
+            description: "超时时间（秒），默认 60，最大 300"
           }
         },
         required: ["command"]
