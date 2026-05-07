@@ -21,8 +21,7 @@ import { printBanner, printToolCall, printToolResult, printSessionBanner } from 
 
 if (!config.apiKey) {
   console.error(chalk.red('❌ 未配置 API Key。请设置环境变量 CTRL_API_KEY 或写入 ~/.ctrl/config.json'));
-  console.error(chalk.dim('   示例: set CTRL_API_KEY=sk-xxx  (Windows)'));
-  console.error(chalk.dim('   或:  在 ~/.ctrl/config.json 中写入 {"apiKey":"sk-xxx"}'));
+  console.error(chalk.dim('   示例: set CTRL_API_KEY=sk-xxx'));
   process.exit(1);
 }
 
@@ -38,12 +37,8 @@ const spinner = new Spinner();
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
-  prompt: chalk.hex('#FFB347')('Ctrl > ')
+  prompt: chalk.hex('#FFB347')('Ctrl > '),
 });
-
-function setRawMode(on) {
-  if (process.stdin.isTTY) process.stdin.setRawMode(on);
-}
 
 const BASE_SYSTEM_PROMPT = `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl)开发你的，专门帮助用户。每一条回复都需要帮用户介绍。用户给你下达命令是，你可以按照计划来做，你可以写待办任务，todo工具：todo_create(创建todo)，todo_list(返回todo列表)，todo_update(更新todo)，todo_delete(删除todo)
 
@@ -72,7 +67,7 @@ let message = [];
 function initMessages() {
   const { session, messages } = loadCurrentSession();
   if (session) {
-    printSessionBanner(session);
+    console.log(chalk.blue(`📂 当前会话: ${chalk.bold(session.name)} (${chalk.dim('#' + session.id)})`));
   }
   if (messages.length > 0) {
     message = messages;
@@ -104,9 +99,8 @@ function onEscKey(str, key) {
   }
 }
 
-// ===== 流式请求，返回完整的 assistant message =====
 async function streamCompletion(messages, tools, signal) {
-  spinner.start(chalk.dim('⏳ 思考中…'));
+  spinner.start('⏳ 思考中...');
 
   const stream = await client.chat.completions.create({
     messages,
@@ -115,24 +109,20 @@ async function streamCompletion(messages, tools, signal) {
     tools,
   }, { signal });
 
-  const toolCalls = {};  // keyed by index
+  const toolCalls = {};
   let textContent = '';
   let reasoningContent = '';
-  let finishReason = '';
   let hasStartedContent = false;
 
   for await (const chunk of stream) {
     if (signal?.aborted) break;
 
     const delta = chunk.choices?.[0]?.delta;
-    finishReason = chunk.choices?.[0]?.finish_reason || finishReason;
 
-    // DeepSeek thinking mode: 必须捕获并回传 reasoning_content
     if (delta?.reasoning_content) {
       reasoningContent += delta.reasoning_content;
     }
 
-    // 文本内容
     if (delta?.content) {
       if (!hasStartedContent) {
         spinner.stop();
@@ -142,12 +132,8 @@ async function streamCompletion(messages, tools, signal) {
       process.stdout.write(delta.content);
     }
 
-    // tool_calls delta 累积
+    // 工具调用期间保持微调器运转，等实际执行工具时才清除
     if (delta?.tool_calls) {
-      if (!hasStartedContent) {
-        spinner.stop();
-        hasStartedContent = true;
-      }
       for (const tc of delta.tool_calls) {
         const idx = tc.index;
         if (!toolCalls[idx]) {
@@ -166,7 +152,6 @@ async function streamCompletion(messages, tools, signal) {
 
   spinner.stop();
 
-  // 构造 assistant message
   const msg = { role: 'assistant' };
   if (reasoningContent) {
     msg.reasoning_content = reasoningContent;
@@ -183,7 +168,6 @@ async function streamCompletion(messages, tools, signal) {
   return msg;
 }
 
-// ===== 会话管理命令 =====
 function handleSessionCommand(content) {
   const parts = content.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -211,13 +195,10 @@ function handleSessionCommand(content) {
         return true;
       }
       const result = switchSession(arg);
-      if (result.error) {
-        console.log(chalk.red(result.error));
-      } else {
-        console.log(chalk.green(result.msg));
+      console.log(result.error ? chalk.red(result.error) : chalk.green(result.msg));
+      if (!result.error) {
         const { messages } = loadCurrentSession();
-        message = messages.length > 0 ? messages : [];
-        message.unshift({ role: "system", content: buildSystemPrompt() });
+        message = messages.length > 0 ? messages : [{ role: "system", content: buildSystemPrompt() }];
         turnCount = 0;
       }
       return true;
@@ -231,22 +212,13 @@ function handleSessionCommand(content) {
       const result = deleteSession(arg);
       console.log(result.includes('✅') ? chalk.green(result) : chalk.red(result));
       const { messages } = loadCurrentSession();
-      message = messages.length > 0 ? messages : [];
-      message.unshift({ role: "system", content: buildSystemPrompt() });
+      message = messages.length > 0 ? messages : [{ role: "system", content: buildSystemPrompt() }];
       turnCount = 0;
       return true;
     }
 
     case ':help':
-      console.log(chalk.blue(`
-⌨️  Ctrl 命令：
-  :new [名称]    - 创建新会话
-  :switch <ID>   - 切换会话
-  :sessions      - 列出所有会话
-  :delete <ID>   - 删除会话
-  exit           - 退出
-  Esc            - 中断当前请求
-`));
+      console.log(chalk.blue('\n⌨️  Ctrl 命令：\n  :new [名称]    - 创建新会话\n  :switch <ID>   - 切换会话\n  :sessions      - 列出所有会话\n  :delete <ID>   - 删除会话\n  exit           - 退出\n  Esc            - 中断当前请求\n'));
       return true;
 
     default:
@@ -254,17 +226,19 @@ function handleSessionCommand(content) {
   }
 }
 
-// ===== 主函数 =====
 async function main() {
   initMessages();
-
   printBanner(config);
-
   rl.prompt();
 
   rl.on('line', async (text) => {
     const content = text.trim();
-    if (content == "exit") {
+    if (!content) {
+      rl.prompt();
+      return;
+    }
+
+    if (content === 'exit') {
       saveCurrentSession(message);
       console.log(chalk.dim('   再见'));
       rl.close();
@@ -302,7 +276,6 @@ async function main() {
         }
       }))];
 
-      // 首轮：流式请求
       responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
       message.push(responseMessage);
       saveCurrentSession(message);
@@ -310,7 +283,6 @@ async function main() {
       let iteration = 0;
       while (responseMessage.tool_calls && responseMessage.tool_calls.length > 0 && iteration < MAX_ITERATIONS) {
         if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
-
         iteration++;
 
         for (const toolCall of responseMessage.tool_calls) {
@@ -337,14 +309,13 @@ async function main() {
 
         if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
 
-        // 工具执行后的请求也用流式
         responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
         message.push(responseMessage);
         saveCurrentSession(message);
       }
 
       if (iteration >= MAX_ITERATIONS) {
-        console.log(chalk.yellow('\n  ⚠️ 达到最大工具调用次数，强制结束。'));
+        console.log(chalk.yellow('\n⚠️ 达到最大工具调用次数，强制结束。'));
       }
 
       if (turnCount > 0 && turnCount % AUTO_SUMMARIZE_INTERVAL === 0) {
@@ -357,7 +328,7 @@ async function main() {
       if (error.message === "ABORTED_BY_USER" ||
           error.name === "AbortError" ||
           (error.name === "APIError" && error.status === undefined)) {
-        console.log(chalk.yellow('\n  ⏹ 已中断 (Esc)，对话上下文已保留'));
+        console.log(chalk.yellow('\n⏹ 已中断 (Esc)，对话上下文已保留'));
 
         while (message.length > msgCountBefore) {
           message.pop();
@@ -366,7 +337,7 @@ async function main() {
 
         rl.prompt();
       } else {
-        console.error(chalk.red('\n  ❌ 出错:'), error.message);
+        console.error(chalk.red('\n❌ 出错:'), error.message);
         rl.prompt();
       }
     } finally {
@@ -376,15 +347,15 @@ async function main() {
     }
   });
 
-  rl.on('close', () => {
-    saveCurrentSession(message);
-    console.log(chalk.dim('   再见'));
-    process.exit(0);
-  });
+  // rl.on('close', () => {
+  //   saveCurrentSession(message);
+  //   console.log(chalk.dim('   再见'));
+  //   process.exit(0);
+  // });
 
-process.on('SIGINT', () => {
-  saveCurrentSession(message);
-  console.log(chalk.dim('\n   再见'));
+  process.on('SIGINT', () => {
+    saveCurrentSession(message);
+    console.log(chalk.dim('\n   再见'));
     process.exit(0);
   });
 }

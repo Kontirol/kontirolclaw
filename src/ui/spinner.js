@@ -13,7 +13,11 @@ export class Spinner {
   }
 
   start(text = '') {
-    if (this.isSpinning) return;
+    if (this.isSpinning) {
+      this.text = text;
+      this._render();
+      return;
+    }
     this.isSpinning = true;
     this.text = text;
     this.frameIndex = 0;

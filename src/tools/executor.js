@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawn } from "node:child_process";
+import { printFileDiff } from "../ui/diff.js";
 import { addMemory, searchMemory, listMemory, deleteMemory, loadMemory } from "../memory/preferences.js";
 import { setPreference, listPreferences } from "../memory/preferences.js";
 import { addVector, searchVectors, listVectors, deleteVector } from "../memory/vector.js";
@@ -137,7 +138,10 @@ export async function executeToolCall(toolName, args) {
     }
     case 'create_file': {
       try {
+        const isNew = !fs.existsSync(fullPath);
+        const oldContent = isNew ? '' : fs.readFileSync(fullPath, 'utf-8');
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
+        printFileDiff(isNew ? 'create' : 'edit', args.filename, oldContent, args.content || '');
         return `文件 ${args.filename} 创建/更新成功`;
       } catch (err) {
         return `创建文件失败：${err.message}`;
@@ -145,7 +149,10 @@ export async function executeToolCall(toolName, args) {
     }
     case 'delete_file': {
       try {
+        let oldContent = '';
+        try { oldContent = fs.readFileSync(fullPath, 'utf-8'); } catch {}
         fs.unlinkSync(fullPath);
+        printFileDiff('delete', args.filename, oldContent, '');
         return `文件 ${args.filename} 已删除`;
       } catch (err) {
         return `删除文件失败：${err.message}`;
@@ -153,7 +160,10 @@ export async function executeToolCall(toolName, args) {
     }
     case 'edit_file': {
       try {
+        let oldContent = '';
+        try { oldContent = fs.readFileSync(fullPath, 'utf-8'); } catch {}
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
+        printFileDiff('edit', args.filename, oldContent, args.content || '');
         return `文件 ${args.filename} 已修改`;
       } catch (err) {
         return `修改文件失败：${err.message}`;
