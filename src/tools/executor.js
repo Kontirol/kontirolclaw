@@ -142,7 +142,7 @@ export async function executeToolCall(toolName, args) {
         const oldContent = isNew ? '' : fs.readFileSync(fullPath, 'utf-8');
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
         printFileDiff(isNew ? 'create' : 'edit', args.filename, oldContent, args.content || '');
-        return `文件 ${args.filename} 创建/更新成功`;
+        return `文件 ${args.filename} ${isNew ? '创建' : '更新'}成功`;
       } catch (err) {
         return `创建文件失败：${err.message}`;
       }
@@ -156,17 +156,6 @@ export async function executeToolCall(toolName, args) {
         return `文件 ${args.filename} 已删除`;
       } catch (err) {
         return `删除文件失败：${err.message}`;
-      }
-    }
-    case 'edit_file': {
-      try {
-        let oldContent = '';
-        try { oldContent = fs.readFileSync(fullPath, 'utf-8'); } catch {}
-        fs.writeFileSync(fullPath, args.content || '', 'utf-8');
-        printFileDiff('edit', args.filename, oldContent, args.content || '');
-        return `文件 ${args.filename} 已修改`;
-      } catch (err) {
-        return `修改文件失败：${err.message}`;
       }
     }
     case 'read_dir': {

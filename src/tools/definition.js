@@ -18,12 +18,12 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "create_file",
-      description: "创建一个新文件，并写入内容。如果文件已存在则覆盖。",
+      description: "创建一个新文件，并写入完整内容。也可用于修改已有文件（传入完整新内容即可）。",
       parameters: {
         type: "object",
         properties: {
           filename: { type: "string", description: "文件名（相对路径）" },
-          content: { type: "string", description: "要写入的内容" }
+          content: { type: "string", description: "文件的完整内容" }
         },
         required: ["filename", "content"]
       }
@@ -40,21 +40,6 @@ export const toolDefinitions = [
           filename: { type: "string", description: "要删除的文件名（相对路径）" }
         },
         required: ["filename"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "edit_file",
-      description: "修改一个**已存在**的文件，将整个文件内容替换为新内容。如果文件不存在，请使用 create_file",
-      parameters: {
-        type: "object",
-        properties: {
-          filename: { type: "string", description: "文件名（相对路径）" },
-          content: { type: "string", description: "新的完整内容" }
-        },
-        required: ["filename", "content"]
       }
     }
   },
