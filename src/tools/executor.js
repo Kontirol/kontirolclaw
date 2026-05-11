@@ -10,7 +10,16 @@ import { addVector, searchVectors, listVectors, deleteVector } from "../memory/v
 import { proposeNewTool, proposePromptUpdate, listPendingChanges, approveProposal, rejectProposal } from "../memory/self-improve.js";
 import { saveCurrentSession } from "../memory/sessions.js";
 
-const WORK_DIR = process.cwd();
+let workDir = process.cwd();
+export function getWorkDir() { return workDir; }
+export function setWorkDir(dir) {
+  if (fs.existsSync(dir)) {
+    workDir = dir;
+    return true;
+  }
+  return false;
+}
+
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const TODO_FILE = path.join(CTRL_DIR, 'todos.json');
 
@@ -43,7 +52,7 @@ async function runCommand(command, shell = "powershell", timeoutMs = 60000) {
     let timedOut = false;
 
     const child = spawn(shellPath, args, {
-      cwd: WORK_DIR,
+      cwd: workDir,
       windowsHide: true,
     });
 
@@ -122,8 +131,8 @@ const STATUS_ICONS = {
 };
 
 export async function executeToolCall(toolName, args) {
-  const fullPath = args.filename ? path.resolve(WORK_DIR, args.filename) : WORK_DIR;
-  if (args.filename && !fullPath.startsWith(WORK_DIR)) {
+  const fullPath = args.filename ? path.resolve(workDir, args.filename) : workDir;
+  if (args.filename && !fullPath.startsWith(workDir)) {
     return `❌ 安全限制：不能操作当前目录以外的路径`;
   }
 
@@ -160,7 +169,7 @@ export async function executeToolCall(toolName, args) {
     }
     case 'read_dir': {
       try {
-        const dir = args.dirname ? path.resolve(WORK_DIR, args.dirname) : WORK_DIR;
+        const dir = args.dirname ? path.resolve(workDir, args.dirname) : workDir;
         const files = fs.readdirSync(dir);
         return JSON.stringify(files);
       } catch (err) {
@@ -178,7 +187,7 @@ export async function executeToolCall(toolName, args) {
       return await runCommand(command, shell, timeout);
     }
 
-    // ===== TODO 工具（文件持久化） =====
+    // ===== TODO 工具 =====
     case 'todo_create': {
       try {
         const { todos, nextId } = loadTodos();
