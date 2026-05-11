@@ -99,6 +99,12 @@ function onEscKey(str, key) {
   }
 }
 
+// 校验 assistant 消息是否有效（content 和 tool_calls 不能同时为空）
+function isValidAssistantMsg(msg) {
+  if (msg.role !== 'assistant') return true;
+  return !(msg.content == null && !msg.tool_calls);
+}
+
 async function streamCompletion(messages, tools, signal) {
   spinner.start('⏳ 思考中...');
 
@@ -161,7 +167,8 @@ async function streamCompletion(messages, tools, signal) {
     msg.tool_calls = tcList;
     msg.content = null;
   } else {
-    msg.content = textContent || null;
+    // 防止 content 为 null 且无 tool_calls 导致下一轮 API 报错
+    msg.content = textContent || '✅ 完成';
     if (textContent) process.stdout.write('\n');
   }
 
@@ -277,8 +284,10 @@ async function main() {
       }))];
 
       responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
-      message.push(responseMessage);
-      saveCurrentSession(message);
+      if (isValidAssistantMsg(responseMessage)) {
+        message.push(responseMessage);
+        saveCurrentSession(message);
+      }
 
       let iteration = 0;
       while (responseMessage.tool_calls && responseMessage.tool_calls.length > 0 && iteration < MAX_ITERATIONS) {
@@ -310,8 +319,10 @@ async function main() {
         if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
 
         responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
-        message.push(responseMessage);
-        saveCurrentSession(message);
+        if (isValidAssistantMsg(responseMessage)) {
+          message.push(responseMessage);
+          saveCurrentSession(message);
+        }
       }
 
       if (iteration >= MAX_ITERATIONS) {
