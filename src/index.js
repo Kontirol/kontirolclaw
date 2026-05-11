@@ -105,6 +105,12 @@ function isValidAssistantMsg(msg) {
   return !(msg.content == null && !msg.tool_calls);
 }
 
+// 恢复 readline 并显示提示符
+function showPrompt() {
+  rl.resume();
+  rl.prompt();
+}
+
 async function streamCompletion(messages, tools, signal) {
   spinner.start('⏳ 思考中...');
 
@@ -113,6 +119,7 @@ async function streamCompletion(messages, tools, signal) {
     model: config.model,
     stream: true,
     tools,
+    max_tokens: 8192,
   }, { signal });
 
   const toolCalls = {};
@@ -138,7 +145,6 @@ async function streamCompletion(messages, tools, signal) {
       process.stdout.write(delta.content);
     }
 
-    // 工具调用期间保持微调器运转，等实际执行工具时才清除
     if (delta?.tool_calls) {
       for (const tc of delta.tool_calls) {
         const idx = tc.index;
@@ -239,9 +245,12 @@ async function main() {
   rl.prompt();
 
   rl.on('line', async (text) => {
+    // 暂停 readline，防止用户在 AI 工作期间误输入导致消息混乱
+    rl.pause();
+
     const content = text.trim();
     if (!content) {
-      rl.prompt();
+      showPrompt();
       return;
     }
 
@@ -254,7 +263,7 @@ async function main() {
 
     if (content.startsWith(':')) {
       handleSessionCommand(content);
-      rl.prompt();
+      showPrompt();
       return;
     }
 
@@ -294,6 +303,9 @@ async function main() {
         if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
         iteration++;
 
+        // 工具执行期间显示 spinner，防止用户误以为空闲
+        spinner.start('⏳ 执行中...');
+
         for (const toolCall of responseMessage.tool_calls) {
           const toolName = toolCall.function.name;
           let toolArgs;
@@ -316,6 +328,8 @@ async function main() {
           saveCurrentSession(message);
         }
 
+        spinner.stop();
+
         if (currentAbort.signal.aborted) throw new Error("ABORTED_BY_USER");
 
         responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
@@ -333,7 +347,7 @@ async function main() {
         triggerAutoSummary();
       }
 
-      rl.prompt();
+      showPrompt();
     } catch (error) {
       spinner.stop();
       if (error.message === "ABORTED_BY_USER" ||
@@ -346,10 +360,10 @@ async function main() {
         }
         saveCurrentSession(message);
 
-        rl.prompt();
+        showPrompt();
       } else {
         console.error(chalk.red('\n❌ 出错:'), error.message);
-        rl.prompt();
+        showPrompt();
       }
     } finally {
       spinner.stop();
@@ -357,12 +371,6 @@ async function main() {
       process.stdin.off('keypress', onEscKey);
     }
   });
-
-  // rl.on('close', () => {
-  //   saveCurrentSession(message);
-  //   console.log(chalk.dim('   再见'));
-  //   process.exit(0);
-  // });
 
   process.on('SIGINT', () => {
     saveCurrentSession(message);
