@@ -20,6 +20,7 @@ const i18n = {
     aborted: '已中断',
     workDir: '工作目录',
     changeDir: '点击切换',
+    deleteSession: '删除会话',
   },
   ug: {
     title: 'Ctrl · AI ياردەمچى',
@@ -41,6 +42,7 @@ const i18n = {
     aborted: 'توختىتىلدى',
     workDir: 'خىزمەت مۇندەرىجىسى',
     changeDir: 'ئۆزگەرتىش',
+    deleteSession: 'سۆھبەتنى ئۆچۈرۈش',
   }
 };
 

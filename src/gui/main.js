@@ -7,7 +7,7 @@ import {
   listSessions,
   createSession,
   switchSession,
-  getCurrentSessionId,
+  deleteSession,
   loadCurrentSession,
 } from '../memory/sessions.js';
 import { getWorkDir, setWorkDir } from '../tools/executor.js';
@@ -39,46 +39,58 @@ function createWindow() {
 function setupIPC() {
   chatEngine = new ChatEngine();
 
-  // ===== 聊天 =====
-  ipcMain.handle('chat:history', () => {
-    return chatEngine.getHistory();
-  });
+  // ===== 聊天 — 每次 send 都重新绑定，防止旧 listener 残留 =====
+  ipcMain.on('chat:send', (_event, userInput) => {
+    // 移除上一次可能残留的的全部监听器
+    chatEngine.removeAllListeners('chunk');
+    chatEngine.removeAllListeners('stream_start');
+    chatEngine.removeAllListeners('stream_end');
+    chatEngine.removeAllListeners('tool');
+    chatEngine.removeAllListeners('info');
+    chatEngine.removeAllListeners('done');
+    chatEngine.removeAllListeners('aborted');
+    chatEngine.removeAllListeners('error');
 
-  ipcMain.on('chat:send', async (event, userInput) => {
-    const onChunk = (data) => event.sender.send('chat:chunk', data);
-    const onStreamStart = () => event.sender.send('chat:stream_start');
-    const onStreamEnd = () => event.sender.send('chat:stream_end');
-    const onTool = (data) => event.sender.send('chat:tool', data);
-    const onDone = () => {
-      event.sender.send('chat:done');
-      cleanup();
-    };
-    const onAborted = () => {
-      event.sender.send('chat:aborted');
-      cleanup();
-    };
-    const onError = (data) => {
-      event.sender.send('chat:error', data);
-      cleanup();
-    };
+    const sender = _event.sender;
 
-    const cleanup = () => {
-      chatEngine.off('chunk', onChunk);
-      chatEngine.off('stream_start', onStreamStart);
-      chatEngine.off('stream_end', onStreamEnd);
-      chatEngine.off('tool', onTool);
-      chatEngine.off('done', onDone);
-      chatEngine.off('aborted', onAborted);
-      chatEngine.off('error', onError);
-    };
-
-    chatEngine.on('chunk', onChunk);
-    chatEngine.on('stream_start', onStreamStart);
-    chatEngine.on('stream_end', onStreamEnd);
-    chatEngine.on('tool', onTool);
-    chatEngine.on('done', onDone);
-    chatEngine.on('aborted', onAborted);
-    chatEngine.on('error', onError);
+    chatEngine.on('chunk', (data) => sender.send('chat:chunk', data));
+    chatEngine.on('stream_start', () => sender.send('chat:stream_start'));
+    chatEngine.on('stream_end', () => sender.send('chat:stream_end'));
+    chatEngine.on('tool', (data) => sender.send('chat:tool', data));
+    chatEngine.on('info', (data) => sender.send('chat:info', data));
+    chatEngine.on('done', () => {
+      sender.send('chat:done');
+      chatEngine.removeAllListeners('chunk');
+      chatEngine.removeAllListeners('stream_start');
+      chatEngine.removeAllListeners('stream_end');
+      chatEngine.removeAllListeners('tool');
+      chatEngine.removeAllListeners('info');
+      chatEngine.removeAllListeners('done');
+      chatEngine.removeAllListeners('aborted');
+      chatEngine.removeAllListeners('error');
+    });
+    chatEngine.on('aborted', () => {
+      sender.send('chat:aborted');
+      chatEngine.removeAllListeners('chunk');
+      chatEngine.removeAllListeners('stream_start');
+      chatEngine.removeAllListeners('stream_end');
+      chatEngine.removeAllListeners('tool');
+      chatEngine.removeAllListeners('info');
+      chatEngine.removeAllListeners('done');
+      chatEngine.removeAllListeners('aborted');
+      chatEngine.removeAllListeners('error');
+    });
+    chatEngine.on('error', (data) => {
+      sender.send('chat:error', data);
+      chatEngine.removeAllListeners('chunk');
+      chatEngine.removeAllListeners('stream_start');
+      chatEngine.removeAllListeners('stream_end');
+      chatEngine.removeAllListeners('tool');
+      chatEngine.removeAllListeners('info');
+      chatEngine.removeAllListeners('done');
+      chatEngine.removeAllListeners('aborted');
+      chatEngine.removeAllListeners('error');
+    });
 
     chatEngine.sendMessage(userInput);
   });
@@ -87,10 +99,13 @@ function setupIPC() {
     chatEngine.abort();
   });
 
-  // ===== 会话管理 =====
-  ipcMain.handle('session:list', () => {
-    return listSessions();
+  // ===== 历史 =====
+  ipcMain.handle('chat:history', () => {
+    return chatEngine.getHistory();
   });
+
+  // ===== 会话管理 =====
+  ipcMain.handle('session:list', () => listSessions());
 
   ipcMain.handle('session:current', () => {
     const { session } = loadCurrentSession();
@@ -105,16 +120,18 @@ function setupIPC() {
 
   ipcMain.handle('session:switch', (_event, idOrName) => {
     const result = switchSession(idOrName);
-    if (!result.error) {
-      chatEngine.reloadSession();
-    }
+    if (!result.error) chatEngine.reloadSession();
+    return result;
+  });
+
+  ipcMain.handle('session:delete', (_event, idOrName) => {
+    const result = deleteSession(idOrName);
+    if (result.startsWith('✅')) chatEngine.reloadSession();
     return result;
   });
 
   // ===== 工作目录 =====
-  ipcMain.handle('workdir:get', () => {
-    return getWorkDir();
-  });
+  ipcMain.handle('workdir:get', () => getWorkDir());
 
   ipcMain.handle('workdir:set', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -122,9 +139,8 @@ function setupIPC() {
       title: '选择工作目录',
     });
     if (result.canceled || !result.filePaths.length) return null;
-    const dir = result.filePaths[0];
-    setWorkDir(dir);
-    return dir;
+    setWorkDir(result.filePaths[0]);
+    return result.filePaths[0];
   });
 
   // ===== 窗口控制 =====

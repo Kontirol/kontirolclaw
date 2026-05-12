@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('ctrl', {
     ipcRenderer.on('chat:tool', handler);
     return () => ipcRenderer.off('chat:tool', handler);
   },
+  onInfo: (cb) => {
+    const handler = (_event, data) => cb(data);
+    ipcRenderer.on('chat:info', handler);
+    return () => ipcRenderer.off('chat:info', handler);
+  },
   onDone: (cb) => {
     const handler = () => cb();
     ipcRenderer.on('chat:done', handler);
@@ -50,6 +55,7 @@ contextBridge.exposeInMainWorld('ctrl', {
   getCurrentSession: () => ipcRenderer.invoke('session:current'),
   newSession: (name) => ipcRenderer.invoke('session:new', name),
   switchSession: (id) => ipcRenderer.invoke('session:switch', id),
+  deleteSession: (id) => ipcRenderer.invoke('session:delete', id),
 
   // ===== 工作目录 =====
   getWorkDir: () => ipcRenderer.invoke('workdir:get'),

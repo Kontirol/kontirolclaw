@@ -1,12 +1,10 @@
 {
   "name": "ctrl",
   "version": "1.0.0",
-  "description": "Ctrl AI 助手 - 基于 DeepSeek 的 CLI 开发者助手",
-  "main": "src/index.js",
-  "bin": "src/index.js",
+  "description": "Ctrl AI 助手 — Electron 桌面 GUI",
+  "main": "src/gui/main.js",
   "scripts": {
-    "start": "node src/index.js",
-    "gui": "electron src/gui/main.js",
+    "start": "electron src/gui/main.js",
     "test": "node --test"
   },
   "repository": {
@@ -16,10 +14,9 @@
   "keywords": [
     "ai",
     "assistant",
-    "cli",
-    "deepseek",
     "electron",
-    "gui"
+    "gui",
+    "deepseek"
   ],
   "author": "nijat (Ctrl)",
   "license": "ISC",
@@ -29,9 +26,7 @@
   },
   "homepage": "https://github.com/Kontirol/KontirolClaw#readme",
   "dependencies": {
-    "chalk": "^5.6.2",
-    "openai": "^6.34.0",
-    "readline": "^1.3.0"
+    "openai": "^6.34.0"
   },
   "devDependencies": {
     "electron": "^33.0.0"

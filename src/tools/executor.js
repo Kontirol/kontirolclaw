@@ -3,12 +3,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawn } from "node:child_process";
-import { printFileDiff } from "../ui/diff.js";
 import { addMemory, searchMemory, listMemory, deleteMemory, loadMemory } from "../memory/preferences.js";
 import { setPreference, listPreferences } from "../memory/preferences.js";
 import { addVector, searchVectors, listVectors, deleteVector } from "../memory/vector.js";
 import { proposeNewTool, proposePromptUpdate, listPendingChanges, approveProposal, rejectProposal } from "../memory/self-improve.js";
 import { saveCurrentSession } from "../memory/sessions.js";
+import { computeDiff, formatDiffText } from "../shared/diff.js";
 
 let workDir = process.cwd();
 export function getWorkDir() { return workDir; }
@@ -23,7 +23,6 @@ export function setWorkDir(dir) {
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const TODO_FILE = path.join(CTRL_DIR, 'todos.json');
 
-// 危险命令黑名单
 const FORBIDDEN_PATTERNS = [
   /rm\s+-rf\s+\//,
   /format\s+[a-zA-Z]:/,
@@ -150,8 +149,10 @@ export async function executeToolCall(toolName, args) {
         const isNew = !fs.existsSync(fullPath);
         const oldContent = isNew ? '' : fs.readFileSync(fullPath, 'utf-8');
         fs.writeFileSync(fullPath, args.content || '', 'utf-8');
-        printFileDiff(isNew ? 'create' : 'edit', args.filename, oldContent, args.content || '');
-        return `文件 ${args.filename} ${isNew ? '创建' : '更新'}成功`;
+
+        const diff = computeDiff(oldContent, args.content || '');
+        const diffText = formatDiffText(isNew ? 'create' : 'edit', args.filename, diff);
+        return `文件 ${args.filename} ${isNew ? '创建' : '更新'}成功\n${diffText}`;
       } catch (err) {
         return `创建文件失败：${err.message}`;
       }
@@ -161,8 +162,10 @@ export async function executeToolCall(toolName, args) {
         let oldContent = '';
         try { oldContent = fs.readFileSync(fullPath, 'utf-8'); } catch {}
         fs.unlinkSync(fullPath);
-        printFileDiff('delete', args.filename, oldContent, '');
-        return `文件 ${args.filename} 已删除`;
+
+        const diff = computeDiff(oldContent, '');
+        const diffText = formatDiffText('delete', args.filename, diff);
+        return `文件 ${args.filename} 已删除\n${diffText}`;
       } catch (err) {
         return `删除文件失败：${err.message}`;
       }
