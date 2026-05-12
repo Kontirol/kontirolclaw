@@ -1,7 +1,7 @@
-// memory/vector.js - 轻量级 RAG 向量记忆
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+// memory/vector.js - 轻量级 RAG 向量记忆（CommonJS 版本）
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const VECTOR_FILE = path.join(CTRL_DIR, 'vectors.json');
@@ -12,7 +12,7 @@ function ensureDir() {
   }
 }
 
-export function loadVectors() {
+function loadVectors() {
   ensureDir();
   try {
     if (fs.existsSync(VECTOR_FILE)) {
@@ -29,8 +29,7 @@ function saveVectors(vectors) {
   fs.writeFileSync(VECTOR_FILE, JSON.stringify(vectors, null, 2), 'utf-8');
 }
 
-// 添加一个会话摘要向量
-export function addVector(summary, keywords = [], conversationSnippet = '') {
+function addVector(summary, keywords = [], conversationSnippet = '') {
   const vectors = loadVectors();
   const v = {
     id: Date.now(),
@@ -47,8 +46,7 @@ export function addVector(summary, keywords = [], conversationSnippet = '') {
   return v;
 }
 
-// 搜索相关记忆
-export function searchVectors(query, topK = 5) {
+function searchVectors(query, topK = 5) {
   const all = loadVectors();
   if (all.length === 0) return [];
 
@@ -81,7 +79,6 @@ export function searchVectors(query, topK = 5) {
   scored.sort((a, b) => b.score - a.score);
   const results = scored.filter(s => s.score > 0).slice(0, topK);
 
-  // 更新访问记录
   if (results.length > 0) {
     const vectors = loadVectors();
     for (const r of results) {
@@ -97,35 +94,19 @@ export function searchVectors(query, topK = 5) {
   return results;
 }
 
-// 获取上下文文本
-export function getVectorContext(query) {
-  const results = searchVectors(query, 3);
-  if (results.length === 0) return '';
-  return '\n=== 相关历史记忆 ===\n' +
-    results.map((r, i) => `${i + 1}. ${r.summary}`).join('\n');
-}
-
-// 列出所有向量
-export function listVectors() {
+function listVectors() {
   const all = loadVectors();
   if (all.length === 0) return '暂无记忆向量';
   return all.map(v => `[#${v.id}] ${v.summary} (访问:${v.accessCount}次)`).join('\n');
 }
 
-// 删除向量
-export function deleteVector(id) {
-  const vectors = loadVectors();
-  const idx = vectors.findIndex(v => v.id === id);
-  if (idx === -1) return `未找到向量 #${id}`;
-  const deleted = vectors.splice(idx, 1)[0];
-  saveVectors(vectors);
-  return `已删除记忆 #${id}: "${deleted.summary}"`;
-}
-
-// 由 AI 调用：压缩当前对话为摘要并存储
-export function summarizeAndStore(conversationText, keywords = []) {
+function summarizeAndStore(conversationText, keywords = []) {
   const summary = conversationText.length > 300
     ? conversationText.slice(0, 300) + '...'
     : conversationText;
   return addVector(summary, keywords, conversationText.slice(0, 500));
 }
+
+module.exports = {
+  loadVectors, addVector, searchVectors, listVectors, summarizeAndStore
+};

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="${cssUri}">
+  <title>Ctrl AI</title>
+</head>
+<body>
+  <div id="app">
+    <!-- 会话栏 -->
+    <div id="sessions-bar">
+      <div id="session-selector" class="dropdown">
+        <button id="current-session-btn" class="session-btn" title="切换会话">
+          <span id="current-session-name">默认会话</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <div id="session-dropdown" class="dropdown-menu hidden">
+          <div id="session-list"></div>
+          <div class="dropdown-divider"></div>
+          <button id="new-session-btn" class="dropdown-item new-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            新建会话
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 消息区 -->
+    <div id="messages"></div>
+
+    <!-- 输入区 -->
+    <div id="input-area">
+      <div id="input-wrapper">
+        <textarea id="input" placeholder="问 Ctrl 任何事... (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
+        <button id="send-btn" title="发送">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <div id="status-bar">
+        <span id="status-text"></span>
+        <button id="abort-btn" class="hidden" title="中断 (Esc)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          中断
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="${jsUri}"></script>
+</body>
+</html>

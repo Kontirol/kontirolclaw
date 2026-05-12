@@ -1,7 +1,7 @@
-// memory/sessions.js - 多会话管理
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+// memory/sessions.js - 多会话管理（CommonJS 版本）
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const SESSIONS_DIR = path.join(CTRL_DIR, 'sessions');
@@ -29,7 +29,6 @@ function sessionPath(id) {
   return path.join(SESSIONS_DIR, `${id}.json`);
 }
 
-// 迁移旧的单文件历史到会话系统
 function migrateOldHistory() {
   const oldFile = path.join(CTRL_DIR, 'history.json');
   if (!fs.existsSync(oldFile)) return false;
@@ -38,23 +37,18 @@ function migrateOldHistory() {
     const data = JSON.parse(raw);
     const messages = data.messages || [];
     if (messages.length === 0) return false;
-
     const meta = loadMeta();
     const id = Date.now().toString(36);
     const session = {
-      id,
-      name: '旧会话 (已迁移)',
+      id, name: '旧会话 (已迁移)',
       createdAt: data.updatedAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      messageCount: messages.length
+      updatedAt: new Date().toISOString(), messageCount: messages.length
     };
     fs.writeFileSync(sessionPath(id), JSON.stringify({ session, messages }, null, 2), 'utf-8');
     meta.sessions.push(session);
     meta.currentId = id;
     saveMeta(meta);
-
     fs.renameSync(oldFile, oldFile + '.bak');
-    console.log(`📦 已将旧历史迁移到会话 #${id}`);
     return true;
   } catch (err) {
     console.warn('⚠️ 迁移旧历史失败:', err.message);
@@ -62,112 +56,99 @@ function migrateOldHistory() {
   }
 }
 
-// 列出所有会话
-export function listSessions() {
-  const meta = loadMeta();
-  migrateOldHistory();
-  const m = loadMeta();
-  if (m.sessions.length === 0) return '暂无会话';
-  return m.sessions
-    .map(s => `${s.id === m.currentId ? '👉' : '  '} [${s.id}] ${s.name} (${s.messageCount || 0} 条消息, ${s.updatedAt?.slice(0, 10) || '?'})`)
-    .join('\n');
-}
-
-// 获取当前会话 ID
-export function getCurrentSessionId() {
+function listSessions() {
   migrateOldHistory();
   const meta = loadMeta();
-  return meta.currentId;
+  return meta.sessions.map(s => ({
+    id: s.id,
+    name: s.name,
+    messageCount: s.messageCount || 0,
+    updatedAt: s.updatedAt,
+    isCurrent: s.id === meta.currentId
+  }));
 }
 
-// 新建会话
-export function createSession(name) {
+function getCurrentSessionId() {
+  migrateOldHistory();
+  return loadMeta().currentId;
+}
+
+function createSession(name) {
   migrateOldHistory();
   const meta = loadMeta();
   const id = Date.now().toString(36);
   const session = {
-    id,
-    name: name || `会话 ${meta.sessions.length + 1}`,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    messageCount: 0
+    id, name: name || `会话 ${meta.sessions.length + 1}`,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messageCount: 0
   };
   meta.sessions.push(session);
   meta.currentId = id;
   saveMeta(meta);
   fs.writeFileSync(sessionPath(id), JSON.stringify({ session, messages: [] }, null, 2), 'utf-8');
-  return { session, msg: `✅ 已创建并切换到新会话「${session.name}」(#${id})` };
+  return session;
 }
 
-// 切换会话
-export function switchSession(idOrName) {
+function switchSession(idOrName) {
   migrateOldHistory();
   const meta = loadMeta();
-  const found = meta.sessions.find(
-    s => s.id === idOrName || s.name === idOrName
-  );
-  if (!found) return { error: `未找到会话「${idOrName}」。输入 :sessions 查看所有会话。` };
+  const found = meta.sessions.find(s => s.id === idOrName || s.name === idOrName);
+  if (!found) return null;
   meta.currentId = found.id;
   saveMeta(meta);
-  return { session: found, msg: `✅ 已切换到会话「${found.name}」(#${found.id})` };
+  return found;
 }
 
-// 删除会话
-export function deleteSession(idOrName) {
+function deleteSession(idOrName) {
   migrateOldHistory();
   const meta = loadMeta();
-  const idx = meta.sessions.findIndex(
-    s => s.id === idOrName || s.name === idOrName
-  );
-  if (idx === -1) return `未找到会话「${idOrName}」`;
-
+  const idx = meta.sessions.findIndex(s => s.id === idOrName || s.name === idOrName);
+  if (idx === -1) return null;
+  if (meta.sessions.length <= 1) return { error: '至少保留一个会话' };
   const session = meta.sessions[idx];
-  if (meta.sessions.length <= 1) return '❌ 至少保留一个会话';
-
   meta.sessions.splice(idx, 1);
-  if (meta.currentId === session.id) {
-    meta.currentId = meta.sessions[0].id;
-  }
+  if (meta.currentId === session.id) meta.currentId = meta.sessions[0].id;
   saveMeta(meta);
-
   try { fs.unlinkSync(sessionPath(session.id)); } catch { /* ignore */ }
-  return `✅ 已删除会话「${session.name}」(#${session.id})，当前切换到「${meta.sessions.find(s => s.id === meta.currentId)?.name}」`;
+  return session;
 }
 
-// 加载当前会话消息
-export function loadCurrentSession() {
+function loadCurrentSession() {
   migrateOldHistory();
   const meta = loadMeta();
   if (!meta.currentId) {
-    const { session } = JSON.parse(JSON.stringify(createSession('默认会话')));
+    const id = Date.now().toString(36);
+    const session = {
+      id, name: '默认会话',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messageCount: 0
+    };
+    meta.sessions.push(session);
+    meta.currentId = id;
+    saveMeta(meta);
+    fs.writeFileSync(sessionPath(id), JSON.stringify({ session, messages: [] }, null, 2), 'utf-8');
     return { session, messages: [] };
   }
-
   const file = sessionPath(meta.currentId);
   try {
     if (fs.existsSync(file)) {
       const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
       return { session: data.session, messages: data.messages || [] };
     }
-  } catch (err) {
-    console.warn('⚠️ 加载会话失败:', err.message);
-  }
+  } catch (err) { console.warn('⚠️ 加载会话失败:', err.message); }
   const s = meta.sessions.find(s => s.id === meta.currentId);
   return { session: s || { id: meta.currentId, name: '未知' }, messages: [] };
 }
 
-// 保存当前会话消息（全部保存，不截断）
-export function saveCurrentSession(messages) {
+function saveCurrentSession(messages) {
   const meta = loadMeta();
   if (!meta.currentId) return;
-
   const file = sessionPath(meta.currentId);
   const session = meta.sessions.find(s => s.id === meta.currentId);
   if (session) {
     session.messageCount = messages.length;
     session.updatedAt = new Date().toISOString();
   }
-
   fs.writeFileSync(file, JSON.stringify({ session, messages }, null, 2), 'utf-8');
   saveMeta(meta);
 }
+
+module.exports = { listSessions, getCurrentSessionId, createSession, switchSession, deleteSession, loadCurrentSession, saveCurrentSession };

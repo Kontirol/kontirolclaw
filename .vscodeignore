@@ -1,0 +1,6 @@
+.vscode
+.git
+node_modules
+src/cli/**
+*.md
+.DS_Store

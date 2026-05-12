@@ -1,8 +1,7 @@
-// memory/self-improve.js - 自我优化
-// 允许 AI 修改自己的工具定义和提示词（需用户确认）
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+// memory/self-improve.js - 自我优化（CommonJS 版本）
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const CUSTOM_TOOLS_FILE = path.join(CTRL_DIR, 'custom_tools.json');
@@ -15,9 +14,7 @@ function ensureDir() {
   }
 }
 
-// ============ 自定义工具 ============
-
-export function loadCustomTools() {
+function loadCustomTools() {
   ensureDir();
   try {
     if (fs.existsSync(CUSTOM_TOOLS_FILE)) {
@@ -27,13 +24,12 @@ export function loadCustomTools() {
   return [];
 }
 
-export function saveCustomTools(tools) {
+function saveCustomTools(tools) {
   ensureDir();
   fs.writeFileSync(CUSTOM_TOOLS_FILE, JSON.stringify(tools, null, 2), 'utf-8');
 }
 
-// AI 提出新增工具
-export function proposeNewTool(toolName, description, parameters) {
+function proposeNewTool(toolName, description, parameters) {
   ensureDir();
   const pending = loadPendingChanges();
   const proposal = {
@@ -51,27 +47,7 @@ export function proposeNewTool(toolName, description, parameters) {
     `⚠️ 需要用户确认后才会生效。请输入 "确认提案 ${proposal.id}" 或 "拒绝提案 ${proposal.id}"`;
 }
 
-// AI 提出修改工具
-export function proposeEditTool(toolName, updates) {
-  ensureDir();
-  const pending = loadPendingChanges();
-  const proposal = {
-    id: Date.now(),
-    type: 'edit_tool',
-    toolName,
-    updates,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  };
-  pending.push(proposal);
-  savePendingChanges(pending);
-  return `📝 工具修改提案 #${proposal.id}：「${toolName}」\n` +
-    `⚠️ 请输入 "确认提案 ${proposal.id}" 或 "拒绝提案 ${proposal.id}"`;
-}
-
-// ============ 自定义提示词 ============
-
-export function loadCustomPrompt() {
+function loadCustomPrompt() {
   ensureDir();
   try {
     if (fs.existsSync(CUSTOM_PROMPT_FILE)) {
@@ -81,12 +57,12 @@ export function loadCustomPrompt() {
   return '';
 }
 
-export function saveCustomPrompt(prompt) {
+function saveCustomPrompt(prompt) {
   ensureDir();
   fs.writeFileSync(CUSTOM_PROMPT_FILE, prompt, 'utf-8');
 }
 
-export function proposePromptUpdate(newPromptSnippet, reason) {
+function proposePromptUpdate(newPromptSnippet, reason) {
   ensureDir();
   const pending = loadPendingChanges();
   const proposal = {
@@ -103,8 +79,6 @@ export function proposePromptUpdate(newPromptSnippet, reason) {
     `⚠️ 请输入 "确认提案 ${proposal.id}" 或 "拒绝提案 ${proposal.id}"`;
 }
 
-// ============ 提案管理 ============
-
 function loadPendingChanges() {
   try {
     if (fs.existsSync(PENDING_FILE)) {
@@ -118,7 +92,7 @@ function savePendingChanges(pending) {
   fs.writeFileSync(PENDING_FILE, JSON.stringify(pending, null, 2), 'utf-8');
 }
 
-export function listPendingChanges() {
+function listPendingChanges() {
   const pending = loadPendingChanges();
   const active = pending.filter(p => p.status === 'pending');
   if (active.length === 0) return '暂无待处理的提案';
@@ -127,7 +101,7 @@ export function listPendingChanges() {
   ).join('\n');
 }
 
-export function approveProposal(id) {
+function approveProposal(id) {
   const pending = loadPendingChanges();
   const idx = pending.findIndex(p => p.id === id);
   if (idx === -1) return `未找到提案 #${id}`;
@@ -146,18 +120,6 @@ export function approveProposal(id) {
     savePendingChanges(pending);
     return `✅ 工具「${proposal.toolName}」已生效！重启后可用。`;
 
-  } else if (proposal.type === 'edit_tool') {
-    // 修改自定义工具
-    const tools = loadCustomTools();
-    const toolIdx = tools.findIndex(t => t.name === proposal.toolName);
-    if (toolIdx !== -1) {
-      tools[toolIdx] = { ...tools[toolIdx], ...proposal.updates };
-      saveCustomTools(tools);
-    }
-    proposal.status = 'approved';
-    savePendingChanges(pending);
-    return `✅ 工具「${proposal.toolName}」已更新！`;
-
   } else if (proposal.type === 'update_prompt') {
     let current = loadCustomPrompt();
     current += '\n' + proposal.newPromptSnippet;
@@ -170,7 +132,7 @@ export function approveProposal(id) {
   return '未知提案类型';
 }
 
-export function rejectProposal(id) {
+function rejectProposal(id) {
   const pending = loadPendingChanges();
   const idx = pending.findIndex(p => p.id === id);
   if (idx === -1) return `未找到提案 #${id}`;
@@ -179,11 +141,18 @@ export function rejectProposal(id) {
   return `❌ 提案 #${id} 已拒绝`;
 }
 
-// 整合后的系统提示词
-export function getFullSystemPrompt(basePrompt) {
+function getFullSystemPrompt(basePrompt) {
   const custom = loadCustomPrompt();
   if (custom) {
     return basePrompt + '\n\n=== 自我优化规则 ===\n' + custom;
   }
   return basePrompt;
 }
+
+module.exports = {
+  loadCustomTools, saveCustomTools,
+  proposeNewTool, proposePromptUpdate,
+  loadCustomPrompt, saveCustomPrompt,
+  listPendingChanges, approveProposal, rejectProposal,
+  getFullSystemPrompt
+};

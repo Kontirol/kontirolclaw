@@ -1,5 +1,5 @@
-// tools/definition.js
-export const toolDefinitions = [
+// tools/definition.js - 工具定义（CommonJS 版本）
+const toolDefinitions = [
   {
     type: "function",
     function: {
@@ -46,6 +46,20 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "open_file",
+      description: "在 VS Code 编辑器中打开一个文件（在选项卡中显示）",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: { type: "string", description: "要打开的文件名（相对路径）" }
+        },
+        required: ["filename"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "read_dir",
       description: "列出指定目录下的所有文件和子目录名称。不包含子目录内部的内容。",
       parameters: {
@@ -61,18 +75,13 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "exec_command",
-      description: "在当前工作目录下执行一条 PowerShell 或 cmd 命令。默认超时 60 秒，最长 300 秒。",
+      description: "在当前工作目录下执行一条命令。默认超时 60 秒，最长 300 秒。",
       parameters: {
         type: "object",
         properties: {
           command: {
             type: "string",
             description: "要执行的命令，例如 'dir' 或 'npm create vue@latest'"
-          },
-          shell: {
-            type: "string",
-            enum: ["cmd", "powershell"],
-            description: "使用的 shell 类型，默认为 powershell"
           },
           timeout: {
             type: "number",
@@ -156,7 +165,7 @@ export const toolDefinitions = [
     }
   },
 
-  // ===== 记忆系统工具（第一~三层） =====
+  // ===== 记忆系统工具 =====
   {
     type: "function",
     function: {
@@ -278,7 +287,7 @@ export const toolDefinitions = [
     }
   },
 
-  // ===== 自我优化工具（第四层） =====
+  // ===== 自我优化工具 =====
   {
     type: "function",
     function: {
@@ -361,3 +370,5 @@ export const toolDefinitions = [
     }
   },
 ];
+
+module.exports = { toolDefinitions };
