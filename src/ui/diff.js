@@ -1,5 +1,6 @@
 // src/ui/diff.js - 文件变更差异显示
 import chalk from 'chalk';
+import { highlightCode } from './highlight.js';
 
 const CONTEXT_LINES = 3;
 const MAX_DELETE_PREVIEW = 3; // delete 时只显示开头几行
@@ -94,6 +95,16 @@ function padToWidth(text, width) {
   return text + ' '.repeat(pad);
 }
 
+// 对一行代码进行语法高亮（保留缩进）
+function colorLine(text, filename) {
+  if (!text.trim()) return text; // 空行不用高亮
+  // 保留前导空格
+  const leading = text.match(/^(\s*)/)[1];
+  const code = text.slice(leading.length);
+  if (!code) return text;
+  return leading + highlightCode(code, filename);
+}
+
 export function printFileDiff(action, filename, oldContent, newContent) {
   const oldLines = oldContent ? oldContent.split('\n') : [];
   const newLines = newContent ? newContent.split('\n') : [];
@@ -122,13 +133,14 @@ export function printFileDiff(action, filename, oldContent, newContent) {
   const termWidth = Math.min(process.stdout.columns || 100, 100);
   const prefixWidth = numWidth + 3; // "  -  " or "  +  " or "     "
 
-  // delete 文件：只显示前几行预览
+  // delete 文件：只显示前几行预览（带语法高亮）
   if (action === 'delete') {
     const preview = oldLines.slice(0, MAX_DELETE_PREVIEW);
     for (let i = 0; i < preview.length; i++) {
       const num = String(i + 1).padStart(numWidth);
-      const line = `${num}  ${preview[i]}`;
-      console.log(`  ${chalk.bgRed.white(padToWidth(`- ${line}`, termWidth - 2))}`);
+      const colored = colorLine(preview[i], filename);
+      const line = `${num}  ${colored}`;
+      console.log(`  ${chalk.bgRed(padToWidth(`- ${line}`, termWidth - 2))}`);
     }
     if (oldLines.length > MAX_DELETE_PREVIEW) {
       console.log(chalk.dim(`  ... 共 ${oldLines.length} 行`));
@@ -137,29 +149,31 @@ export function printFileDiff(action, filename, oldContent, newContent) {
     return;
   }
 
-  // create 文件：全部绿色背景显示
+  // create 文件：绿色背景 + 语法高亮
   if (action === 'create') {
     for (let i = 0; i < newLines.length; i++) {
       const num = String(i + 1).padStart(numWidth);
-      const line = `${num}  ${newLines[i]}`;
-      console.log(`  ${chalk.bgGreen.white(padToWidth(`+ ${line}`, termWidth - 2))}`);
+      const colored = colorLine(newLines[i], filename);
+      const line = `${num}  ${colored}`;
+      console.log(`  ${chalk.bgGreen(padToWidth(`+ ${line}`, termWidth - 2))}`);
     }
     console.log('');
     return;
   }
 
-  // edit 文件：只显示改动的 hunks
+  // edit 文件：只显示改动的 hunks（带语法高亮）
   const edits = computeEdits(oldLines, newLines);
   const hunks = groupHunks(edits, CONTEXT_LINES);
 
   for (const hunk of hunks) {
     for (const op of hunk) {
       const lineNum = (op.oldLine || op.newLine || 0).toString().padStart(numWidth);
-      const line = `${lineNum}  ${op.text}`;
+      const colored = colorLine(op.text, filename);
+      const line = `${lineNum}  ${colored}`;
       if (op.type === 'remove') {
-        console.log(`  ${chalk.bgRed.white(padToWidth(`- ${line}`, termWidth - 2))}`);
+        console.log(`  ${chalk.bgRed(padToWidth(`- ${line}`, termWidth - 2))}`);
       } else if (op.type === 'add') {
-        console.log(`  ${chalk.bgGreen.black(padToWidth(`+ ${line}`, termWidth - 2))}`);
+        console.log(`  ${chalk.bgGreen(padToWidth(`+ ${line}`, termWidth - 2))}`);
       } else {
         console.log(chalk.dim(`    ${line}`));
       }

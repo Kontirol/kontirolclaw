@@ -5,7 +5,7 @@
   "main": "index.js",
   "bin": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "set FORCE_COLOR=1 && node src/index.js",
     "test": "node --test"
   },
   "repository": {
@@ -27,6 +27,7 @@
   "homepage": "https://github.com/Kontirol/KontirolClaw#readme",
   "dependencies": {
     "chalk": "^5.6.2",
+    "cli-highlight": "^2.1.11",
     "openai": "^6.34.0",
     "readline": "^1.3.0"
   }

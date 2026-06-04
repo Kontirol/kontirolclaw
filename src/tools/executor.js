@@ -13,6 +13,7 @@ import { saveCurrentSession } from "../memory/sessions.js";
 const WORK_DIR = process.cwd();
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
 const TODO_FILE = path.join(CTRL_DIR, 'todos.json');
+const FILE_SIZE_LIMIT = 100 * 1024; // read_file 上限 100KB
 
 // 危险命令黑名单
 const FORBIDDEN_PATTERNS = [
@@ -131,6 +132,16 @@ export async function executeToolCall(toolName, args) {
     // ===== 文件操作 =====
     case 'read_file': {
       try {
+        const stat = fs.statSync(fullPath);
+        const fileSize = stat.size;
+        if (fileSize > FILE_SIZE_LIMIT) {
+          const fd = fs.openSync(fullPath, 'r');
+          const buf = Buffer.alloc(FILE_SIZE_LIMIT);
+          fs.readSync(fd, buf, 0, FILE_SIZE_LIMIT, 0);
+          fs.closeSync(fd);
+          return buf.toString('utf-8') +
+            `\n\n⚠️ 文件过大（${(fileSize / 1024).toFixed(1)}KB），仅读取了前 ${(FILE_SIZE_LIMIT / 1024).toFixed(0)}KB。如需完整内容请用 exec_command 读取指定行。`;
+        }
         return fs.readFileSync(fullPath, 'utf-8');
       } catch (err) {
         return `读取文件失败：${err.message}`;
@@ -145,6 +156,58 @@ export async function executeToolCall(toolName, args) {
         return `文件 ${args.filename} ${isNew ? '创建' : '更新'}成功`;
       } catch (err) {
         return `创建文件失败：${err.message}`;
+      }
+    }
+    case 'edit_file': {
+      try {
+        if (!fs.existsSync(fullPath)) {
+          return `❌ 文件 ${args.filename} 不存在。请先用 create_file 创建。`;
+        }
+        const oldContent = fs.readFileSync(fullPath, 'utf-8');
+        const lines = oldContent.split('\n');
+        const totalLines = lines.length;
+
+        let startLine = typeof args.startLine === 'number' ? args.startLine : 1;
+        let endLine = typeof args.endLine === 'number' ? args.endLine : startLine;
+
+        // 1-indexed 校验
+        if (startLine < 1) startLine = 1;
+        if (endLine < 1) endLine = 1;
+        if (endLine > totalLines) endLine = totalLines;
+        if (startLine > totalLines) {
+          // 在末尾追加
+          startLine = totalLines + 1;
+          endLine = totalLines;
+        }
+        if (startLine > endLine && startLine <= totalLines) {
+          endLine = startLine;
+        }
+
+        const newContent = args.newContent || '';
+        const newLines = newContent.split('\n');
+
+        // 构建新文件
+        const beforeLines = lines.slice(0, startLine - 1);
+        const afterLines = lines.slice(endLine); // endLine is inclusive, so slice from endLine
+        const resultLines = [...beforeLines, ...newLines, ...afterLines];
+        const resultContent = resultLines.join('\n');
+
+        // 安全检查：如果编辑后文件大小变化超过 90%，拒绝（防止 AI 误覆盖）
+        const sizeRatio = oldContent.length > 0 ? resultContent.length / oldContent.length : 2;
+        if (sizeRatio < 0.1) {
+          return `❌ 编辑拒绝：新内容仅为原文件的 ${(sizeRatio * 100).toFixed(0)}%，这很可能是个错误。请检查 startLine/endLine/newContent 参数。原文件有 ${totalLines} 行。`;
+        }
+
+        fs.writeFileSync(fullPath, resultContent, 'utf-8');
+        printFileDiff('edit', args.filename, oldContent, resultContent);
+
+        const changedLines = endLine - startLine + 1;
+        const detail = startLine === endLine
+          ? `第 ${startLine} 行`
+          : `第 ${startLine}~${endLine} 行`;
+        return `文件 ${args.filename} ${detail}已更新（${totalLines} 行 → ${resultLines.length} 行）`;
+      } catch (err) {
+        return `编辑文件失败：${err.message}`;
       }
     }
     case 'delete_file': {
