@@ -9,6 +9,7 @@ import { setPreference, listPreferences } from "../memory/preferences.js";
 import { addVector, searchVectors, listVectors, deleteVector } from "../memory/vector.js";
 import { proposeNewTool, proposePromptUpdate, listPendingChanges, approveProposal, rejectProposal } from "../memory/self-improve.js";
 import { saveCurrentSession } from "../memory/sessions.js";
+import { mcpManager } from "../mcp/manager.js";
 
 const WORK_DIR = process.cwd();
 const CTRL_DIR = path.join(os.homedir(), '.ctrl');
@@ -123,6 +124,11 @@ const STATUS_ICONS = {
 };
 
 export async function executeToolCall(toolName, args) {
+  // === MCP 工具分发 ===
+  if (mcpManager.isMcpTool(toolName)) {
+    return await mcpManager.executeToolCall(toolName, args);
+  }
+
   const fullPath = args.filename ? path.resolve(WORK_DIR, args.filename) : WORK_DIR;
   if (args.filename && !fullPath.startsWith(WORK_DIR)) {
     return `❌ 安全限制：不能操作当前目录以外的路径`;

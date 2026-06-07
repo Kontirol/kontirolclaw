@@ -11,6 +11,7 @@ import { executeToolCall } from "./tools/executor.js";
 import { getPreferencesContext, detectRememberCommand, addMemory } from "./memory/preferences.js";
 import { getVectorContext, summarizeAndStore } from "./memory/vector.js";
 import { getFullSystemPrompt, loadCustomTools } from "./memory/self-improve.js";
+import { mcpManager } from "./mcp/manager.js";
 import {
   listSessions,
   createSession,
@@ -89,7 +90,8 @@ const BASE_SYSTEM_PROMPT = `你是一个AI助手，名字叫Ctrl，是nijat(Ctrl
 2.代码能短就别拖长
 3.没叫你动的地方你别动
 4.给目标就行别给步骤
-5.文件编辑一律使用 create_file（传入完整新内容）
+5.记住用户没有说开工之前，千万不要开始修改代码，或者创建代码，用户最初可能需要一个步骤方向，定好了才开始工作。
+6.文件编辑一律使用 create_file（传入完整新内容）
 
 记忆与学习能力：
 - 当用户说"记住xxx"时，使用 memory_store 工具存储
@@ -155,6 +157,16 @@ function isValidAssistantMsg(msg) {
 function showPrompt() {
   rl.resume();
   rl.prompt();
+}
+
+// ===== 获取所有工具（内置 + 自定义 + MCP）=====
+function getAllTools() {
+  const customTools = loadCustomTools().map(t => ({
+    type: "function",
+    function: { name: t.name, description: t.description, parameters: t.parameters }
+  }));
+  const mcpTools = mcpManager.getToolDefinitions();
+  return [...toolDefinitions, ...customTools, ...mcpTools];
 }
 
 async function streamCompletion(messages, tools, signal) {
@@ -299,8 +311,62 @@ function handleSessionCommand(content) {
       return true;
     }
 
+    // ===== MCP 命令 =====
+    case ':mcp': {
+      const subCmd = parts[1];
+      const subArg = parts.slice(2).join(' ');
+
+      switch (subCmd) {
+        case 'add': {
+          // :mcp add <名称> <命令> [参数...]
+          const args = subArg.trim().split(/\s+/);
+          if (args.length < 2) {
+            console.log(chalk.yellow('用法：:mcp add <名称> <命令> [参数...]'));
+            console.log(chalk.dim('  示例：:mcp add filesystem npx -y @anthropic/mcp-filesystem'));
+            return true;
+          }
+          const name = args[0];
+          const command = args[1];
+          const cmdArgs = args.slice(2);
+          const result = mcpManager.addServer(name, command, cmdArgs);
+          console.log(chalk.green(`✅ ${result}`));
+          console.log(chalk.dim('  重启 Ctrl 后生效'));
+          return true;
+        }
+
+        case 'remove': {
+          if (!subArg) {
+            console.log(chalk.yellow('用法：:mcp remove <名称>'));
+            return true;
+          }
+          const result = mcpManager.removeServer(subArg);
+          console.log(result.includes('✅') || result.includes('已移除') ? chalk.green(result) : chalk.red(result));
+          return true;
+        }
+
+        case 'list':
+          console.log(chalk.blue('🔌 MCP 服务器：'));
+          console.log(mcpManager.listServers());
+          return true;
+
+        case 'tools':
+          console.log(chalk.blue('🔧 MCP 工具：'));
+          console.log(mcpManager.listMCPTools());
+          return true;
+
+        default:
+          console.log(chalk.blue('\n🔌 MCP 命令：'));
+          console.log('  :mcp add <名称> <命令> [参数...]  - 添加 MCP 服务器');
+          console.log('  :mcp remove <名称>               - 移除 MCP 服务器');
+          console.log('  :mcp list                        - 列出服务器和连接状态');
+          console.log('  :mcp tools                       - 列出所有 MCP 工具');
+          console.log(chalk.dim('\n  配置保存于 ~/.ctrl/mcp_servers.json，重启后自动连接'));
+          return true;
+      }
+    }
+
     case ':help':
-      console.log(chalk.blue('\n⌨️  Ctrl 命令：\n  :new [名称]    - 创建新会话\n  :switch <ID>   - 切换会话\n  :sessions      - 列出所有会话\n  :delete <ID>   - 删除会话\n  :compact       - 压缩对话历史（释放上下文空间）\n  :git           - 查看 Git 仓库状态\n  exit           - 退出\n  Esc            - 中断当前请求\n'));
+      console.log(chalk.blue('\n⌨️  Ctrl 命令：\n  :new [名称]    - 创建新会话\n  :switch <ID>   - 切换会话\n  :sessions      - 列出所有会话\n  :delete <ID>   - 删除会话\n  :compact       - 压缩对话历史（释放上下文空间）\n  :git           - 查看 Git 仓库状态\n  :mcp           - MCP 服务器管理\n  exit           - 退出\n  Esc            - 中断当前请求\n'));
       return true;
 
     default:
@@ -313,25 +379,30 @@ async function triggerCompact() {
   if (message.length <= 6) return;
 
   const estTokens = estimateTokens(message);
-  let recentStart = message.length;
-  let completeRounds = 0;
+  if (estTokens <= TOKEN_THRESHOLD) return;
+
+  // 从后往前找第 KEEP_ROUNDS 个 user 消息作为切分点
+  // 确保保留完整的 user/assistant/tool 配对
+  const KEEP_ROUNDS = 3;
+  let recentStart = 1;
+  let userCount = 0;
   for (let i = message.length - 1; i >= 1; i--) {
-    if (message[i].role === 'assistant' && !message[i].tool_calls && completeRounds >= 3) {
-      recentStart = i;
-      break;
-    }
-    if (message[i].role === 'assistant' && !message[i].tool_calls) {
-      completeRounds++;
+    if (message[i].role === 'user') {
+      userCount++;
+      if (userCount >= KEEP_ROUNDS) {
+        recentStart = i;
+        break;
+      }
     }
   }
-  if (recentStart < 1) recentStart = 1;
 
   const oldMessages = message.slice(1, recentStart);
   if (oldMessages.length === 0) return;
 
+  // 过滤掉 tool 消息和 tool_calls-only assistant，只保留有实际内容的对话
   const convText = oldMessages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => `[${m.role}] ${(m.content || '').slice(0, 500)}`)
+    .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content)
+    .map(m => `[${m.role}] ${m.content.slice(0, 500)}`)
     .join('\n');
 
   try {
@@ -373,6 +444,9 @@ async function main() {
   initMessages();
   printBanner(config);
 
+  // 启动 MCP 服务器
+  await mcpManager.startAll();
+
   // 启动时显示 git 信息
   const startupGit = getGitContext();
   if (startupGit) {
@@ -390,11 +464,7 @@ async function main() {
       message.push({ role: 'user', content });
       saveCurrentSession(message);
 
-      const customTools = loadCustomTools();
-      const allTools = [...toolDefinitions, ...customTools.map(t => ({
-        type: "function",
-        function: { name: t.name, description: t.description, parameters: t.parameters }
-      }))];
+      const allTools = getAllTools();
 
       currentAbort = new AbortController();
       try {
@@ -502,11 +572,7 @@ async function main() {
     process.stdin.on('keypress', onEscKey);
 
     try {
-      const customTools = loadCustomTools();
-      const allTools = [...toolDefinitions, ...customTools.map(t => ({
-        type: "function",
-        function: { name: t.name, description: t.description, parameters: t.parameters }
-      }))];
+      const allTools = getAllTools();
 
       responseMessage = await streamCompletion(message, allTools, currentAbort.signal);
       if (isValidAssistantMsg(responseMessage)) {
