@@ -18,6 +18,7 @@ import {
   deleteSession,
   loadCurrentSession,
   saveCurrentSession,
+  releaseAllLocks,
 } from "./memory/sessions.js";
 import { Spinner } from "./ui/spinner.js";
 import { printBanner, printToolCall, printToolResult, printSessionBanner } from "./ui/banner.js";
@@ -442,6 +443,7 @@ async function main() {
       }
       console.log('');
     }
+    releaseAllLocks();
     process.exit(0);
   }
 
@@ -465,6 +467,7 @@ async function main() {
 
     if (content === 'exit') {
       saveCurrentSession(message);
+      releaseAllLocks();
       console.log(chalk.dim('   再见'));
       rl.close();
       return;
@@ -578,6 +581,7 @@ async function main() {
 
   process.on('SIGINT', () => {
     saveCurrentSession(message);
+    releaseAllLocks();
     console.log(chalk.dim('\n   再见'));
     process.exit(0);
   });
