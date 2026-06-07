@@ -32,23 +32,6 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
-      name: "edit_file",
-      description: "精确编辑文件的指定行。先 read_file 确认行号，再用此工具替换 startLine~endLine（含首尾）的内容为 newContent。行号从 1 开始。startLine=0 表示文件头插入。endLine 超过文件行数表示末尾追加。安全保护：如果编辑后文件大小变化超过 90% 会被拒绝。",
-      parameters: {
-        type: "object",
-        properties: {
-          filename: { type: "string", description: "文件名（相对路径）" },
-          startLine: { type: "number", description: "起始行号（1-indexed，含首行）。设为 0 表示在文件开头插入。" },
-          endLine: { type: "number", description: "结束行号（1-indexed，含尾行）。设为 0 或超过文件行数表示在末尾追加。" },
-          newContent: { type: "string", description: "用于替换的新内容（多行用 \\n 分隔）" }
-        },
-        required: ["filename", "startLine", "endLine", "newContent"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
       name: "delete_file",
       description: "删除一个文件（不可恢复）",
       parameters: {
